@@ -1,0 +1,28 @@
+{
+  "name": "our-midnight-celebration",
+  "version": "1.0.0",
+  "description": "Premium Interactive Virtual Birthday Cake Cutting Website",
+  "main": "server/server.js",
+  "scripts": {
+    "dev:server": "node server/server.js",
+    "dev:client": "npm run dev --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "node server/server.js"
+  },
+  "keywords": [
+    "birthday",
+    "webrtc",
+    "threejs",
+    "socketio",
+    "virtual-celebration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.4"
+  }
+}
