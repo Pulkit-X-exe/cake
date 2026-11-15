@@ -373,7 +373,7 @@ Always and forever with you ❤️`,
 
   // Main Celebration Room
   const isBirthdayStar = currentUser?.role === 'star';
-  const hasPartnerJoined = participants.length >= 2;
+  const hasPartnerJoined = participants.length >= 2 || participants.some(p => p.id !== socket?.id);
 
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-midnight-gradient text-pink-100 overflow-x-hidden select-none">
@@ -472,11 +472,11 @@ Always and forever with you ❤️`,
         <span
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
             celebrationStage === 'ready-to-celebrate'
-              ? 'text-amber-300/80 font-medium'
+              ? 'text-amber-300 font-semibold'
               : 'text-pink-300/60'
           }`}
         >
-          <PartyPopper className="w-3.5 h-3.5" />
+          <PartyPopper className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
           <span>2. Start My Bday</span>
         </span>
 
@@ -520,17 +520,17 @@ Always and forever with you ❤️`,
         </span>
       </div>
 
-      {/* Main Celebration Content Area */}
-      <main className="relative flex-1 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between p-3 sm:p-6 gap-4 sm:gap-6">
+      {/* Main Celebration Content Area: Responsive 2-column layout */}
+      <main className="relative flex-1 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-stretch justify-center p-3 sm:p-5 gap-4 sm:gap-6">
         
-        {/* Left Side: 3D Birthday Cake & Virtual Candle Blowing Controls */}
-        <div className="relative w-full lg:w-7/12 h-[420px] sm:h-[500px] lg:h-[620px] flex flex-col items-center justify-between rounded-3xl bg-cake-stage border border-pink-500/20 p-2 sm:p-4 shadow-2xl overflow-hidden">
+        {/* Left Side: 3D Birthday Cake & START MY BDAY Console */}
+        <div className="relative w-full lg:w-7/12 min-h-[500px] sm:min-h-[560px] lg:min-h-[620px] flex flex-col justify-between rounded-3xl bg-cake-stage border border-pink-500/20 p-3 sm:p-5 shadow-2xl overflow-visible">
           
           {/* Subtle Stage Lighting Ring */}
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-pink-500/10 via-transparent to-transparent" />
 
-          {/* 3D Cake Canvas Component */}
-          <div className="relative w-full flex-1">
+          {/* 3D Cake Canvas Component with dedicated height */}
+          <div className="relative w-full h-[280px] sm:h-[340px] lg:h-[380px] flex items-center justify-center">
             <ErrorBoundary>
               <Cake3D
                 cakeConfig={cakeConfig}
@@ -541,58 +541,47 @@ Always and forever with you ❤️`,
             </ErrorBoundary>
           </div>
 
-          {/* Bottom Console: Big Button "🎂 START MY BDAY ❤️" OR Candle Blowing Controls */}
-          <div className="w-full mt-2">
+          {/* Directly below the 3D Birthday Cake: Prominent Controls Area */}
+          <div className="w-full relative z-30 mt-3 px-1 pb-1">
             {celebrationStage === 'ready-to-celebrate' ? (
-              <div className="relative z-30 max-w-md mx-auto w-full px-5 py-4 rounded-3xl bg-[#1c0828]/95 border-2 border-amber-400/50 shadow-2xl backdrop-blur-2xl text-center select-none animate-fadeIn">
-                {!hasPartnerJoined ? (
-                  <>
-                    <h3 className="font-serif-luxury text-xl sm:text-2xl font-bold text-amber-200 mb-1">
-                      Waiting for Partner to Join ❤️
-                    </h3>
-                    <p className="text-xs sm:text-sm text-pink-200/80 mb-3">
-                      Both participants must connect to unlock the celebration button!
-                    </p>
-                    <button
-                      disabled
-                      className="w-full py-4 px-6 rounded-2xl font-extrabold text-base sm:text-lg bg-white/5 border border-pink-500/20 text-pink-300/40 cursor-not-allowed flex items-center justify-center gap-2 mb-3"
-                    >
-                      <span>🎂 START MY BDAY ❤️</span>
-                    </button>
+              <div className="max-w-md mx-auto w-full p-4 sm:p-5 rounded-3xl bg-[#1c0828]/95 border-2 border-amber-400/50 shadow-2xl backdrop-blur-2xl text-center select-none animate-fadeIn">
+                {/* Connection Status Badge */}
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2 shadow-sm">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>{hasPartnerJoined ? 'Both Participants Connected ❤️' : 'Waiting for Partner to Join ❤️'}</span>
+                </div>
+
+                <p className="text-xs text-pink-200/90 mb-3">
+                  {hasPartnerJoined
+                    ? 'Both participants are ready! Click the button below to begin the birthday celebration!'
+                    : 'Share your room invitation link so your partner can join you for the celebration!'}
+                </p>
+
+                {/* LARGE, PROMINENT, GLOWING "START MY BDAY" BUTTON */}
+                <button
+                  onClick={handleStartMyBday}
+                  disabled={isStarting}
+                  className={`w-full py-4 px-6 rounded-2xl font-extrabold text-lg sm:text-2xl shadow-2xl transition-all duration-300 flex items-center justify-center gap-3 border-2 ${
+                    isStarting
+                      ? 'bg-amber-600/50 text-white/80 border-amber-400/40 cursor-wait'
+                      : 'bg-gradient-to-r from-amber-400 via-rose-500 to-pink-500 hover:from-amber-300 hover:via-rose-400 hover:to-pink-400 text-white border-amber-300 shadow-glow hover:scale-[1.03] active:scale-[0.98] cursor-pointer'
+                  }`}
+                >
+                  <span className="text-2xl sm:text-3xl animate-bounce">🎂</span>
+                  <span>{isStarting ? 'STARTING CELEBRATION... 🎉' : '🎂 START MY BDAY ❤️'}</span>
+                  <Sparkles className="w-6 h-6 text-amber-200 animate-spin" />
+                </button>
+
+                {!hasPartnerJoined && (
+                  <div className="mt-3">
                     <button
                       onClick={handleCopyLink}
-                      className="px-5 py-2.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-semibold border border-pink-400/40 transition-all flex items-center gap-2 mx-auto cursor-pointer"
+                      className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-pink-200 text-xs font-medium border border-white/20 transition-all flex items-center gap-1.5 mx-auto cursor-pointer"
                     >
-                      {linkCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-amber-300" />}
+                      {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
                       <span>{linkCopied ? 'Link Copied to Clipboard!' : 'Copy Invitation Link'}</span>
                     </button>
-                  </>
-                ) : (
-                  <>
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>Both Participants Connected ❤️</span>
-                    </div>
-
-                    <h3 className="font-serif-luxury text-xl sm:text-2xl font-bold text-amber-200 mb-1">
-                      Ready for the Magic! ✨
-                    </h3>
-
-                    <p className="text-xs text-pink-200/80 mb-4">
-                      Either participant can press the button below to start the birthday celebration simultaneously!
-                    </p>
-
-                    {/* BIG "START MY BDAY" BUTTON */}
-                    <button
-                      onClick={handleStartMyBday}
-                      disabled={isStarting}
-                      className="w-full py-4 px-6 rounded-2xl font-extrabold text-lg sm:text-xl shadow-2xl bg-gradient-to-r from-amber-400 via-rose-500 to-pink-500 hover:from-amber-300 hover:via-rose-400 hover:to-pink-400 text-white border-2 border-amber-300/80 shadow-glow hover:scale-105 active:scale-95 transition-all duration-300 flex items-center justify-center gap-3 cursor-pointer"
-                    >
-                      <span className="text-2xl animate-bounce">🎂</span>
-                      <span>{isStarting ? 'STARTING CELEBRATION... 🎉' : '🎂 START MY BDAY ❤️'}</span>
-                      <Sparkles className="w-5 h-5 text-amber-200 animate-spin" />
-                    </button>
-                  </>
+                  </div>
                 )}
               </div>
             ) : (
@@ -615,7 +604,7 @@ Always and forever with you ❤️`,
         </div>
 
         {/* Right Side: WebRTC Live 2-Person Video Call with Head-Tracked Hat */}
-        <div className="relative w-full lg:w-5/12 h-[340px] sm:h-[440px] lg:h-[620px] flex flex-col items-center justify-center rounded-3xl bg-black/40 border border-pink-500/20 shadow-2xl overflow-hidden">
+        <div className="relative w-full lg:w-5/12 min-h-[460px] sm:min-h-[520px] lg:min-h-[620px] flex flex-col items-center justify-center rounded-3xl bg-black/40 border border-pink-500/20 shadow-2xl p-2 sm:p-3 overflow-hidden">
           <ErrorBoundary>
             <VideoCall
               socket={socket}
