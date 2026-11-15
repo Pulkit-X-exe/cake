@@ -28,28 +28,8 @@ function getDefaultIceServers() {
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
-    { urls: 'stun:global.stun.twilio.com:3478' },
-    // Metered OpenRelay High-Availability TURN Relays (UDP, TCP, and TLS)
-    {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp'
-      ],
-      username: 'openrelay',
-      credential: 'openrelay'
-    },
-    {
-      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelay',
-      credential: 'openrelay'
-    },
-    {
-      urls: [
-        'turn:turn.matrix.org:3478?transport=udp',
-        'turn:turn.matrix.org:3478?transport=tcp'
-      ]
-    }
+    { urls: 'stun:relay.metered.ca:80' },
+    { urls: 'stun:stun.relay.metered.ca:80' }
   ];
 }
 
@@ -351,8 +331,8 @@ io.on('connection', (socket) => {
     // Broadcast standard webrtc-ready to other peers in room
     socket.to(currentRoomId).emit('webrtc-ready', { from: socket.id });
 
-    // When both participants are ready, designate Caller and Callee explicitly to prevent glare/race conditions
-    if (room.participants.length >= 2 && room.readyForWebRtc.length >= 2) {
+    // When both participants are ready, designate Caller and Callee explicitly
+    if (room.participants.length >= 2) {
       const caller = room.participants[0];
       const callee = room.participants[1];
 
@@ -363,29 +343,32 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC Signaling: Offer
-  socket.on('signal-offer', ({ to, offer }) => {
+  socket.on('signal-offer', ({ to, roomId, offer }) => {
+    const targetRoom = roomId || currentRoomId;
     if (to) {
       io.to(to).emit('signal-offer', { from: socket.id, offer });
-    } else if (currentRoomId) {
-      socket.to(currentRoomId).emit('signal-offer', { from: socket.id, offer });
+    } else if (targetRoom) {
+      socket.to(targetRoom).emit('signal-offer', { from: socket.id, offer });
     }
   });
 
   // WebRTC Signaling: Answer
-  socket.on('signal-answer', ({ to, answer }) => {
+  socket.on('signal-answer', ({ to, roomId, answer }) => {
+    const targetRoom = roomId || currentRoomId;
     if (to) {
       io.to(to).emit('signal-answer', { from: socket.id, answer });
-    } else if (currentRoomId) {
-      socket.to(currentRoomId).emit('signal-answer', { from: socket.id, answer });
+    } else if (targetRoom) {
+      socket.to(targetRoom).emit('signal-answer', { from: socket.id, answer });
     }
   });
 
   // WebRTC Signaling: ICE Candidate
-  socket.on('signal-ice', ({ to, candidate }) => {
+  socket.on('signal-ice', ({ to, roomId, candidate }) => {
+    const targetRoom = roomId || currentRoomId;
     if (to) {
       io.to(to).emit('signal-ice', { from: socket.id, candidate });
-    } else if (currentRoomId) {
-      socket.to(currentRoomId).emit('signal-ice', { from: socket.id, candidate });
+    } else if (targetRoom) {
+      socket.to(targetRoom).emit('signal-ice', { from: socket.id, candidate });
     }
   });
 

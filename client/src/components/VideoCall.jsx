@@ -24,28 +24,8 @@ const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun3.l.google.com:19302' },
   { urls: 'stun:stun4.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
-  { urls: 'stun:global.stun.twilio.com:3478' },
-  // OpenRelay Metered TURN Relays (UDP, TCP, and TLS)
-  {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp'
-    ],
-    username: 'openrelay',
-    credential: 'openrelay'
-  },
-  {
-    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelay',
-    credential: 'openrelay'
-  },
-  {
-    urls: [
-      'turn:turn.matrix.org:3478?transport=udp',
-      'turn:turn.matrix.org:3478?transport=tcp'
-    ]
-  }
+  { urls: 'stun:relay.metered.ca:80' },
+  { urls: 'stun:stun.relay.metered.ca:80' }
 ];
 
 const DEFAULT_RTC_CONFIG = {
@@ -74,13 +54,13 @@ function VideoCallComponent({
   const pendingOfferRef = useRef(null);
   const makingOfferRef = useRef(false);
   const targetPeerIdRef = useRef(null);
+  const rtcConfigRef = useRef(DEFAULT_RTC_CONFIG);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
   const [connectionStatus, setConnectionStatus] = useState('waiting'); // 'waiting' | 'connecting' | 'connected' | 'disconnected'
   const [iceStatusText, setIceStatusText] = useState('Connecting to partner...');
-  const [rtcConfig, setRtcConfig] = useState(DEFAULT_RTC_CONFIG);
   const [isRemoteLive, setIsRemoteLive] = useState(false);
   const [hasRemoteUser, setHasRemoteUser] = useState(false);
   const [remoteUserName, setRemoteUserName] = useState('Partner');
@@ -179,7 +159,7 @@ function VideoCallComponent({
     }
   }, [participants, socket?.id]);
 
-  // Dynamic ICE server retrieval (STUN + TURN credentials)
+  // Dynamic ICE server retrieval (STUN + TURN credentials) - Updates configuration in-place without tearing down peer connection
   useEffect(() => {
     let isCancelled = false;
 
@@ -189,7 +169,12 @@ function VideoCallComponent({
           socket.emit('get-ice-servers', ({ iceServers }) => {
             if (!isCancelled && iceServers && Array.isArray(iceServers) && iceServers.length > 0) {
               console.log('[WebRTC ICE] Configured with', iceServers.length, 'servers via Socket.IO');
-              setRtcConfig(prev => ({ ...prev, iceServers }));
+              rtcConfigRef.current = { ...rtcConfigRef.current, iceServers };
+              if (peerConnectionRef.current && peerConnectionRef.current.signalingState !== 'closed') {
+                try {
+                  peerConnectionRef.current.setConfiguration(rtcConfigRef.current);
+                } catch (e) {}
+              }
             }
           });
         }
@@ -199,11 +184,16 @@ function VideoCallComponent({
           const data = await res.json();
           if (!isCancelled && data.iceServers && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
             console.log('[WebRTC ICE] Configured with', data.iceServers.length, 'servers via REST API');
-            setRtcConfig(prev => ({ ...prev, iceServers: data.iceServers }));
+            rtcConfigRef.current = { ...rtcConfigRef.current, iceServers: data.iceServers };
+            if (peerConnectionRef.current && peerConnectionRef.current.signalingState !== 'closed') {
+              try {
+                peerConnectionRef.current.setConfiguration(rtcConfigRef.current);
+              } catch (e) {}
+            }
           }
         }
       } catch (err) {
-        console.log('[WebRTC ICE] Using fallback high-availability STUN + TURN servers');
+        console.log('[WebRTC ICE] Using fallback high-availability STUN servers');
       }
     }
 
@@ -227,22 +217,24 @@ function VideoCallComponent({
   }, []);
 
   // Create & Send Offer helper
-  const createAndSendOffer = useCallback(async (targetId) => {
+  const createAndSendOffer = useCallback(async (targetId, iceRestart = false) => {
     const pc = peerConnectionRef.current;
     if (!pc || makingOfferRef.current) return;
     try {
       makingOfferRef.current = true;
-      console.log('[WebRTC] Creating Offer for target:', targetId);
+      console.log('[WebRTC] Creating Offer for target:', targetId, 'iceRestart:', iceRestart);
       const offer = await pc.createOffer({
         offerToReceiveAudio: true,
-        offerToReceiveVideo: true
+        offerToReceiveVideo: true,
+        iceRestart: !!iceRestart
       });
       await pc.setLocalDescription(offer);
 
       if (socket) {
         socket.emit('signal-offer', {
           to: targetId,
-          offer
+          roomId,
+          offer: pc.localDescription || offer
         });
         console.log('[WebRTC] Offer sent to target:', targetId);
       }
@@ -251,7 +243,7 @@ function VideoCallComponent({
     } finally {
       makingOfferRef.current = false;
     }
-  }, [socket]);
+  }, [socket, roomId]);
 
   // Handle incoming Offer helper
   const handleIncomingOffer = useCallback(async (from, offer) => {
@@ -263,12 +255,16 @@ function VideoCallComponent({
     }
 
     try {
-      console.log('[WebRTC] Processing incoming Offer from:', from);
+      console.log('[WebRTC] Processing incoming Offer from:', from, 'signalingState:', pc.signalingState);
       targetPeerIdRef.current = from;
 
       if (pc.signalingState !== 'stable') {
         console.log('[WebRTC] Rolling back local description due to incoming offer');
-        await pc.setLocalDescription({ type: 'rollback' });
+        try {
+          await pc.setLocalDescription({ type: 'rollback' });
+        } catch (e) {
+          console.warn('[WebRTC] Rollback notice:', e.message);
+        }
       }
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -280,23 +276,24 @@ function VideoCallComponent({
       if (socket) {
         socket.emit('signal-answer', {
           to: from,
-          answer
+          roomId,
+          answer: pc.localDescription || answer
         });
         console.log('[WebRTC] Answer sent back to:', from);
       }
     } catch (err) {
       console.error('[WebRTC] handleIncomingOffer error:', err);
     }
-  }, [socket, flushQueuedIceCandidates]);
+  }, [socket, roomId, flushQueuedIceCandidates]);
 
   // Setup Peer Connection with local tracks and event handlers
   const setupPeerConnection = useCallback((stream) => {
-    if (peerConnectionRef.current) {
+    if (peerConnectionRef.current && peerConnectionRef.current.signalingState !== 'closed') {
       try { peerConnectionRef.current.close(); } catch (e) {}
     }
 
-    console.log('[WebRTC] Initializing RTCPeerConnection with servers:', rtcConfig.iceServers?.length || 0);
-    const pc = new RTCPeerConnection(rtcConfig);
+    console.log('[WebRTC] Initializing RTCPeerConnection with servers:', rtcConfigRef.current.iceServers?.length || 0);
+    const pc = new RTCPeerConnection(rtcConfigRef.current);
     peerConnectionRef.current = pc;
 
     // Add local tracks to peer connection
@@ -368,6 +365,7 @@ function VideoCallComponent({
         if (socket) {
           socket.emit('signal-ice', {
             to: targetPeerIdRef.current,
+            roomId,
             candidate: event.candidate
           });
         }
@@ -396,13 +394,13 @@ function VideoCallComponent({
         setConnectionStatus('connecting');
         setIceStatusText('Connection interrupted. Reconnecting...');
       } else if (pc.iceConnectionState === 'failed') {
-        console.warn('[WebRTC Diagnostic] ICE connection failed across networks. Triggering ICE restart with TURN relay...');
+        console.warn('[WebRTC Diagnostic] ICE connection failed across networks. Triggering ICE restart...');
         setConnectionStatus('connecting');
         setIceStatusText('Connection interrupted. Reconnecting...');
         try {
           if (pc.restartIce && targetPeerIdRef.current) {
             pc.restartIce();
-            createAndSendOffer(targetPeerIdRef.current);
+            createAndSendOffer(targetPeerIdRef.current, true);
           }
         } catch (e) {
           console.error('[WebRTC ICE Restart Error]:', e);
@@ -440,7 +438,54 @@ function VideoCallComponent({
     }
 
     return pc;
-  }, [socket, playVideoSafely, handleIncomingOffer, rtcConfig, createAndSendOffer]);
+  }, [socket, roomId, playVideoSafely, handleIncomingOffer, createAndSendOffer]);
+
+  // Manual reconnect helper for instant user or watchdog recovery
+  const handleManualReconnect = useCallback(() => {
+    console.log('[WebRTC] Manual reconnect triggered');
+    const pc = peerConnectionRef.current;
+    if (pc && targetPeerIdRef.current) {
+      try {
+        if (pc.restartIce) pc.restartIce();
+        createAndSendOffer(targetPeerIdRef.current, true);
+      } catch (e) {
+        console.warn('[WebRTC] Manual reconnect error:', e);
+      }
+    }
+    if (socket) {
+      socket.emit('webrtc-ready');
+    }
+  }, [createAndSendOffer, socket]);
+
+  // ICE Watchdog: Auto-reconnect if remote peer joined but call stalls in connecting state
+  useEffect(() => {
+    if (!hasRemoteUser || connectionStatus === 'connected' || isRemoteLive) return;
+
+    const watchdog = setInterval(() => {
+      const pc = peerConnectionRef.current;
+      if (!pc || !targetPeerIdRef.current) return;
+
+      const ice = pc.iceConnectionState;
+      const conn = pc.connectionState;
+      console.log(`[ICE Watchdog] Checking connection: ice=${ice}, conn=${conn}, live=${isRemoteLive}`);
+
+      if (ice === 'checking' || ice === 'failed' || ice === 'disconnected' || conn === 'failed') {
+        console.log('[ICE Watchdog] Stalled cross-network connection detected. Re-triggering ICE restart & negotiation...');
+        try {
+          if (pc.restartIce) pc.restartIce();
+          if (currentUser?.role === 'star') {
+            createAndSendOffer(targetPeerIdRef.current, true);
+          } else if (socket) {
+            socket.emit('webrtc-ready');
+          }
+        } catch (e) {
+          console.warn('[ICE Watchdog] error:', e);
+        }
+      }
+    }, 7000);
+
+    return () => clearInterval(watchdog);
+  }, [hasRemoteUser, connectionStatus, isRemoteLive, currentUser?.role, createAndSendOffer, socket]);
 
   // Progressive Media Stream Acquisition (with 5-tier graceful fallback)
   const getMediaWithFallback = async (facing) => {
@@ -582,6 +627,9 @@ function VideoCallComponent({
         localStreamRef.current = stream;
         const hasVideo = stream.getVideoTracks().length > 0;
         setIsVideoDisabled(!hasVideo);
+        if (hasVideo) {
+          setMediaError(null);
+        }
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -679,7 +727,12 @@ function VideoCallComponent({
     const handleSignalAnswer = async ({ from, answer }) => {
       console.log('[Socket] signal-answer received from:', from);
       const pc = peerConnectionRef.current;
-      if (!pc || pc.signalingState === 'stable') return;
+      if (!pc) return;
+
+      if (pc.signalingState === 'stable') {
+        console.log('[WebRTC] Peer connection is already stable. Answer already processed or no active offer.');
+        return;
+      }
 
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(answer));
@@ -973,6 +1026,13 @@ function VideoCallComponent({
                       <p className="text-[10px] text-pink-300/70 mt-0.5">
                         {connectionStatus === 'connected' ? 'Video connected ❤️' : (iceStatusText || 'Establishing secure video connection...')}
                       </p>
+                      <button
+                        onClick={handleManualReconnect}
+                        className="mt-3 px-3.5 py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold border border-amber-400/40 transition-all flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Reconnect Video 🔄</span>
+                      </button>
                     </>
                   ) : (
                     <>
@@ -1138,6 +1198,13 @@ function VideoCallComponent({
                       <p className="text-[10px] text-pink-300/70 mt-0.5">
                         {connectionStatus === 'connected' ? 'Video connected ❤️' : (iceStatusText || 'Establishing secure video connection...')}
                       </p>
+                      <button
+                        onClick={handleManualReconnect}
+                        className="mt-3 px-3.5 py-1.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-semibold border border-pink-400/40 transition-all flex items-center gap-1.5 cursor-pointer shadow-md active:scale-95"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Reconnect Video 🔄</span>
+                      </button>
                     </>
                   ) : (
                     <>
