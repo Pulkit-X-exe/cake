@@ -34,7 +34,9 @@ export default function RoomModal({
 
   // Cake Customization State
   const [cakeName, setCakeName] = useState('My Love');
-  const [cakeMessage, setCakeMessage] = useState('Happy Birthday!');
+  const [cakeMessage, setCakeMessage] = useState(
+    'Happy Birthday, my favorite person in the world!\n\nEven across the distance between us, my heart is right beside yours tonight. Watching you smile as you blow out these candles makes the whole world feel warmer.\n\nMay this year bring you infinite joy, gentle mornings, and all the love you give so effortlessly to the world.\n\nAlways and forever with you ❤️'
+  );
   const [selectedTheme, setSelectedTheme] = useState('romantic-rose');
   const [candleCount, setCandleCount] = useState(5);
 
@@ -281,6 +283,23 @@ export default function RoomModal({
                     className="w-full accent-amber-400"
                   />
                 </div>
+              </div>
+
+              {/* Personal Birthday Message / Keepsake Letter */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-pink-200">
+                    Your Personal Birthday Message / Keepsake Letter 💌
+                  </label>
+                  <span className="text-[10px] text-amber-300/80">Shown inside the opened letter</span>
+                </div>
+                <textarea
+                  rows={4}
+                  value={cakeMessage}
+                  onChange={e => setCakeMessage(e.target.value)}
+                  placeholder="Write your special midnight birthday message here..."
+                  className="w-full px-3 py-2 bg-black/50 border border-pink-500/30 rounded-xl text-pink-100 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400 placeholder-pink-400/40 leading-relaxed font-sans"
+                />
               </div>
 
               {/* Theme color selectors */}

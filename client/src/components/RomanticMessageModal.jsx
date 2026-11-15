@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Heart, Sparkles, Star, RotateCcw, X, Mail, Send, Feather } from 'lucide-react';
+import { Heart, Sparkles, Star, RotateCcw, X, Mail, Send, Feather, Edit3, Check } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { soundEngine } from '../utils/audio';
 
@@ -19,10 +19,16 @@ export default function RomanticMessageModal({
   const [showWishModal, setShowWishModal] = useState(false);
   const [wishText, setWishText] = useState('');
   const [shootingStars, setShootingStars] = useState([]);
+  const [isEditing, setIsEditing] = useState(false);
 
   const recipientName = cakeConfig.name || letterData.recipientName || 'Birthday Star';
   const customMessage = cakeConfig.message || letterData.body || 'Happy Birthday to my favorite person in the world!';
   const senderName = currentUser?.name || letterData.senderName || 'Forever Yours';
+  const [editableBody, setEditableBody] = useState(customMessage);
+
+  useEffect(() => {
+    if (customMessage) setEditableBody(customMessage);
+  }, [customMessage]);
 
   // Listen to remote open events
   useEffect(() => {
@@ -169,9 +175,17 @@ export default function RomanticMessageModal({
                 </span>
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs text-amber-800/80 font-sans font-semibold">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                <span>For {recipientName}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-amber-800/80 font-sans font-semibold hidden sm:inline">
+                  For {recipientName}
+                </span>
+                <button
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="px-2.5 py-1 text-xs font-sans rounded-full bg-amber-900/10 hover:bg-amber-900/20 text-amber-950 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-amber-800" />
+                  <span>{isEditing ? 'Cancel' : 'Edit Message'}</span>
+                </button>
               </div>
             </div>
 
@@ -180,13 +194,39 @@ export default function RomanticMessageModal({
               Under the Midnight Stars ✨
             </h2>
 
-            {/* Typewriter Line-by-Line Reveal of Custom Message */}
-            <div className="whitespace-pre-line text-sm sm:text-base leading-relaxed text-amber-950 font-serif-luxury px-2 sm:px-4 py-2 bg-amber-50/50 rounded-2xl border border-amber-900/10 min-h-[120px]">
-              {customMessage.slice(0, revealedChars)}
-              {revealedChars < customMessage.length && (
-                <span className="inline-block w-1.5 h-4 ml-0.5 bg-rose-600 animate-pulse" />
-              )}
-            </div>
+            {isEditing ? (
+              /* Inline Edit Mode */
+              <div className="space-y-3 font-sans text-sm my-2">
+                <textarea
+                  rows={6}
+                  value={editableBody}
+                  onChange={e => setEditableBody(e.target.value)}
+                  className="w-full p-3 bg-amber-50/90 border border-amber-900/30 rounded-xl text-amber-950 focus:outline-none focus:ring-2 focus:ring-rose-500 font-serif-luxury text-sm leading-relaxed"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setIsEditing(false);
+                      if (socket && roomId) {
+                        socket.emit('update-letter', { body: editableBody, revealed: true });
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-md"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save & Sync Message</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Typewriter Line-by-Line Reveal of Custom Message */
+              <div className="whitespace-pre-line text-sm sm:text-base leading-relaxed text-amber-950 font-serif-luxury px-2 sm:px-4 py-2 bg-amber-50/50 rounded-2xl border border-amber-900/10 min-h-[120px]">
+                {editableBody.slice(0, revealedChars)}
+                {revealedChars < editableBody.length && (
+                  <span className="inline-block w-1.5 h-4 ml-0.5 bg-rose-600 animate-pulse" />
+                )}
+              </div>
+            )}
 
             {/* Signature */}
             <div className="mt-6 text-right pr-4">
