@@ -27,7 +27,8 @@ function createDefaultRoom(roomId) {
     createdAt: Date.now(),
     creatorSocketId: null,
     participants: [],
-    readyUsers: [], // Socket IDs of participants who pressed "LET'S CELEBRATE 🎂"
+    readyForWebRtc: [], // Socket IDs ready for WebRTC
+    celebrationStarted: false, // Prevents duplicate celebration triggers
     stage: 'ready-to-celebrate', // 'ready-to-celebrate' | 'blowing' | 'cutting' | 'celebration' | 'letter'
     cakeConfig: {
       name: 'My Love',
@@ -83,8 +84,6 @@ io.on('connection', (socket) => {
       rooms.set(id, room);
     }
 
-    // Add participant
-    const existingIndex = room.participants.findIndex(p => p.id === socket.id);
     const participant = {
       id: socket.id,
       name: userName || 'Host',
@@ -95,6 +94,7 @@ io.on('connection', (socket) => {
       joinedAt: Date.now()
     };
 
+    const existingIndex = room.participants.findIndex(p => p.id === socket.id);
     if (existingIndex >= 0) {
       room.participants[existingIndex] = participant;
     } else {
@@ -110,7 +110,6 @@ io.on('connection', (socket) => {
   socket.on('join-room', ({ roomId, userName, role }) => {
     const id = (roomId || '').trim().toUpperCase();
     if (!id || !rooms.has(id)) {
-      // If room doesn't exist, create it cleanly so link sharing always succeeds smoothly
       const newRoom = createDefaultRoom(id);
       newRoom.creatorSocketId = socket.id;
       rooms.set(id, newRoom);
@@ -119,7 +118,6 @@ io.on('connection', (socket) => {
     const room = rooms.get(id);
     currentRoomId = id;
 
-    // Check existing participants
     const otherParticipants = room.participants.filter(p => p.id !== socket.id);
     
     // Auto-assign role if needed (if one is star, the other is partner)
@@ -139,7 +137,6 @@ io.on('connection', (socket) => {
       joinedAt: Date.now()
     };
 
-    // Update room participants
     const existingIndex = room.participants.findIndex(p => p.id === socket.id);
     if (existingIndex >= 0) {
       room.participants[existingIndex] = participant;
@@ -165,69 +162,90 @@ io.on('connection', (socket) => {
     console.log(`[Peer Joined] ${participant.name} (${participant.role}) into room ${id}`);
   });
 
+  // WebRTC Signaling: Client Media & RTCPeerConnection Ready
+  socket.on('webrtc-ready', () => {
+    if (!currentRoomId || !rooms.has(currentRoomId)) return;
+    const room = rooms.get(currentRoomId);
+    if (!room.readyForWebRtc) room.readyForWebRtc = [];
+
+    if (!room.readyForWebRtc.includes(socket.id)) {
+      room.readyForWebRtc.push(socket.id);
+    }
+
+    console.log(`[WebRTC Ready] from ${socket.id} in room ${currentRoomId} (${room.readyForWebRtc.length} ready)`);
+
+    // Broadcast standard webrtc-ready to other peers in room
+    socket.to(currentRoomId).emit('webrtc-ready', { from: socket.id });
+
+    // When both participants are ready, designate Caller and Callee explicitly to prevent glare/race conditions
+    if (room.participants.length >= 2 && room.readyForWebRtc.length >= 2) {
+      const caller = room.participants[0];
+      const callee = room.participants[1];
+
+      console.log(`[WebRTC Handshake Trigger] Caller: ${caller.id}, Callee: ${callee.id}`);
+      io.to(caller.id).emit('start-webrtc-call', { to: callee.id });
+      io.to(callee.id).emit('expect-webrtc-call', { from: caller.id });
+    }
+  });
+
   // WebRTC Signaling: Offer
   socket.on('signal-offer', ({ to, offer }) => {
-    io.to(to).emit('signal-offer', {
-      from: socket.id,
-      offer
-    });
+    if (to) {
+      io.to(to).emit('signal-offer', { from: socket.id, offer });
+    } else if (currentRoomId) {
+      socket.to(currentRoomId).emit('signal-offer', { from: socket.id, offer });
+    }
   });
 
   // WebRTC Signaling: Answer
   socket.on('signal-answer', ({ to, answer }) => {
-    io.to(to).emit('signal-answer', {
-      from: socket.id,
-      answer
-    });
+    if (to) {
+      io.to(to).emit('signal-answer', { from: socket.id, answer });
+    } else if (currentRoomId) {
+      socket.to(currentRoomId).emit('signal-answer', { from: socket.id, answer });
+    }
   });
 
   // WebRTC Signaling: ICE Candidate
   socket.on('signal-ice', ({ to, candidate }) => {
-    io.to(to).emit('signal-ice', {
-      from: socket.id,
-      candidate
-    });
+    if (to) {
+      io.to(to).emit('signal-ice', { from: socket.id, candidate });
+    } else if (currentRoomId) {
+      socket.to(currentRoomId).emit('signal-ice', { from: socket.id, candidate });
+    }
   });
 
-  // WebRTC Signaling: Client is ready for peer connection
-  socket.on('webrtc-ready', () => {
-    if (!currentRoomId) return;
-    socket.to(currentRoomId).emit('webrtc-ready', { from: socket.id });
-    console.log(`[WebRTC Ready] from ${socket.id} in room ${currentRoomId}`);
-  });
-
-  // Both users must press "LET'S CELEBRATE 🎂"
-  socket.on('user-press-celebrate', () => {
+  // START MY BDAY BUTTON (Either user can click; starts celebration once for both)
+  const handleStartMyBday = () => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
-    if (!room.readyUsers) room.readyUsers = [];
-
-    if (!room.readyUsers.includes(socket.id)) {
-      room.readyUsers.push(socket.id);
+    
+    // Start celebration only once; prevent duplicate clicks
+    if (room.celebrationStarted) {
+      console.log(`[Start My Bday] Already started in room ${currentRoomId}, skipping duplicate.`);
+      return;
     }
 
-    const readyCount = room.readyUsers.length;
-    const totalParticipants = room.participants.length;
+    room.celebrationStarted = true;
+    room.stage = 'blowing';
 
-    console.log(`[Celebrate Pressed] in room ${currentRoomId} (${readyCount}/${totalParticipants})`);
+    console.log(`[Start My Bday] Triggered by ${socket.id} in room ${currentRoomId}!`);
 
-    // Broadcast readiness status so user A sees "Waiting for your partner..." and user B sees "Your partner is ready!"
-    io.in(currentRoomId).emit('celebrate-readiness', {
-      readyUserIds: room.readyUsers,
-      readyCount,
-      totalParticipants
+    // Broadcast celebration start and music start to all participants
+    io.in(currentRoomId).emit('celebration-start', {
+      stage: 'blowing',
+      roomState: room
     });
+    io.in(currentRoomId).emit('birthday:start', {
+      stage: 'blowing',
+      roomState: room
+    });
+    io.in(currentRoomId).emit('birthday:music-start');
+  };
 
-    // When both participants (or all present, min 2) have pressed the button:
-    if (readyCount >= 2 && totalParticipants >= 2) {
-      room.stage = 'blowing';
-      io.in(currentRoomId).emit('celebration-start', {
-        stage: 'blowing',
-        roomState: room
-      });
-      console.log(`[Celebration Started] All participants ready in room ${currentRoomId}`);
-    }
-  });
+  socket.on('start-my-bday', handleStartMyBday);
+  socket.on('birthday:start', handleStartMyBday);
+  socket.on('user-press-celebrate', handleStartMyBday);
 
   // User media state update
   socket.on('update-user-media', ({ isMuted, isVideoOff, name, role }) => {
@@ -262,8 +280,8 @@ io.on('connection', (socket) => {
     socket.to(currentRoomId).emit('candle-blow-intensity', { intensity, progress });
   });
 
-  // Candle Extinguished Event: Step 6 -> leads immediately to Step 7 (Virtual Cake Knife appears)
-  socket.on('extinguish-candles', ({ blownBy }) => {
+  // Candle Extinguished Event: Step 6 & 7 -> advances directly to knife cutting
+  const handleExtinguishCandles = ({ blownBy }) => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
     room.cakeConfig.candlesLit = false;
@@ -274,8 +292,17 @@ io.on('connection', (socket) => {
       blownBy: blownBy || 'Birthday Star',
       roomState: room
     });
+    io.in(currentRoomId).emit('birthday:candles-blown', {
+      blownBy: blownBy || 'Birthday Star',
+      roomState: room
+    });
+    io.in(currentRoomId).emit('birthday:knife-ready');
+
     console.log(`[Candles Extinguished] in room ${currentRoomId}. Advancing to knife cutting.`);
-  });
+  };
+
+  socket.on('extinguish-candles', handleExtinguishCandles);
+  socket.on('birthday:candles-blown', handleExtinguishCandles);
 
   // Relight Candles (if user wants to celebrate again)
   socket.on('relight-candles', () => {
@@ -284,11 +311,11 @@ io.on('connection', (socket) => {
     room.cakeConfig.candlesLit = true;
     room.cakeConfig.candleBlowProgress = 0;
     room.stage = 'blowing';
+    room.celebrationStarted = true;
     room.celebrationState.fireworksActive = false;
     room.celebrationState.cakeCut = false;
     room.celebrationState.cakeCutProgress = 0;
     room.celebrationState.sliceSeparated = false;
-    room.readyUsers = room.participants.map(p => p.id); // Stay ready for replay
 
     io.in(currentRoomId).emit('candles-relit', { roomState: room });
   });
@@ -310,7 +337,7 @@ io.on('connection', (socket) => {
   });
 
   // Cake cut complete: Step 9 -> leads to Step 10 & 11 (Custom Birthday Message & Fireworks)
-  socket.on('complete-cake-cut', () => {
+  const handleCompleteCakeCut = () => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
     room.celebrationState.cakeCut = true;
@@ -323,8 +350,21 @@ io.on('connection', (socket) => {
       celebrationState: room.celebrationState,
       roomState: room
     });
+    io.in(currentRoomId).emit('birthday:cake-cut', {
+      celebrationState: room.celebrationState,
+      roomState: room
+    });
+    io.in(currentRoomId).emit('birthday:message-reveal', {
+      message: room.cakeConfig.message,
+      name: room.cakeConfig.name
+    });
+    io.in(currentRoomId).emit('birthday:celebration-complete');
+
     console.log(`[Cake Cut Complete] in room ${currentRoomId}. Advancing to celebration message & fireworks.`);
-  });
+  };
+
+  socket.on('complete-cake-cut', handleCompleteCakeCut);
+  socket.on('birthday:cake-cut', handleCompleteCakeCut);
 
   // Love Letter Update & Reveal
   socket.on('update-letter', (letterData) => {
@@ -348,94 +388,65 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoomId);
     const newWish = {
       id: Date.now() + Math.random().toString(36).substring(2, 6),
-      text: wish,
-      author: author || 'Someone Special',
+      author: author || 'Special Someone',
+      wish,
       timestamp: Date.now()
     };
     room.celebrationState.wishes.push(newWish);
     io.in(currentRoomId).emit('wish-added', newWish);
   });
 
-  // Floating live emoji reactions (hearts, kisses, sparkles, cheers)
+  // Live Floating Reactions
   socket.on('send-reaction', ({ type, senderName }) => {
     if (!currentRoomId) return;
     io.in(currentRoomId).emit('reaction-received', {
+      id: Date.now() + Math.random().toString(36).substring(2, 6),
       type,
-      senderName,
-      id: Date.now() + Math.random()
+      senderName: senderName || 'Someone',
+      x: 20 + Math.random() * 60,
+      timestamp: Date.now()
     });
   });
 
-  // Disconnect
+  // Disconnect handling
   socket.on('disconnect', () => {
     console.log(`[Socket Disconnected] ID: ${socket.id}`);
-    if (currentRoomId && rooms.has(currentRoomId)) {
-      const room = rooms.get(currentRoomId);
-      const index = room.participants.findIndex(p => p.id === socket.id);
-      if (index >= 0) {
-        const removed = room.participants.splice(index, 1)[0];
-        if (room.readyUsers) {
-          room.readyUsers = room.readyUsers.filter(id => id !== socket.id);
+    if (!currentRoomId || !rooms.has(currentRoomId)) return;
+
+    const room = rooms.get(currentRoomId);
+    const index = room.participants.findIndex(p => p.id === socket.id);
+    if (index >= 0) {
+      const removed = room.participants.splice(index, 1)[0];
+      if (room.readyForWebRtc) {
+        room.readyForWebRtc = room.readyForWebRtc.filter(id => id !== socket.id);
+      }
+      socket.to(currentRoomId).emit('peer-left', {
+        peerId: socket.id,
+        peerName: removed ? removed.name : 'Participant',
+        roomState: room
+      });
+    }
+
+    if (room.participants.length === 0) {
+      setTimeout(() => {
+        if (rooms.has(currentRoomId) && rooms.get(currentRoomId).participants.length === 0) {
+          rooms.delete(currentRoomId);
+          console.log(`[Room Cleaned] ${currentRoomId}`);
         }
-        socket.to(currentRoomId).emit('peer-left', {
-          peerId: socket.id,
-          peerName: removed ? removed.name : 'Participant',
-          roomState: room
-        });
-        socket.to(currentRoomId).emit('celebrate-readiness', {
-          readyUserIds: room.readyUsers || [],
-          readyCount: (room.readyUsers || []).length,
-          totalParticipants: room.participants.length
-        });
-      }
-      // If room is empty, clean up after 1 hour or keep for reconnects
-      if (room.participants.length === 0) {
-        setTimeout(() => {
-          if (rooms.has(currentRoomId) && rooms.get(currentRoomId).participants.length === 0) {
-            rooms.delete(currentRoomId);
-            console.log(`[Room Cleaned] ID: ${currentRoomId}`);
-          }
-        }, 1000 * 60 * 60);
-      }
+      }, 3600000);
     }
   });
 });
 
-// Serve frontend build if dist directory exists
-const clientDist = path.join(__dirname, '..', 'client', 'dist');
+// Serve frontend in production
+const clientDist = path.join(__dirname, '../client/dist');
 app.use(express.static(clientDist));
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', activeRooms: rooms.size, timestamp: new Date().toISOString() });
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientDist, 'index.html'));
 });
 
-// Fallback for SPA routing
-app.use((req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
-    if (err) {
-      res.status(200).send('Our Midnight Celebration API is running. Client build in progress.');
-    }
-  });
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`✨ Our Midnight Celebration Server running on http://localhost:${PORT}`);
 });
-
-let currentPort = parseInt(process.env.PORT, 10) || 3001;
-
-function startServer(port) {
-  server.listen(port, '0.0.0.0', () => {
-    console.log(`✨ Our Midnight Celebration Server running on http://localhost:${port}`);
-  });
-}
-
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.warn(`⚠️ Port ${currentPort} is busy. Trying port ${currentPort + 1}...`);
-    currentPort += 1;
-    setTimeout(() => {
-      startServer(currentPort);
-    }, 500);
-  } else {
-    console.error('Server error:', err);
-  }
-});
-
-startServer(currentPort);

@@ -74,18 +74,28 @@ async function runTest() {
     });
   });
 
-  // STEP 3: WebRTC Signaling Handshake (webrtc-ready, offer, answer, ice)
-  console.log('\n3️⃣ Testing Two-Way WebRTC Signaling Handshake...');
+  // STEP 3: Server-Coordinated WebRTC Handshake
+  console.log('\n3️⃣ Testing Server-Coordinated WebRTC Signaling Handshake...');
+  star.emit('webrtc-ready');
   partner.emit('webrtc-ready');
 
   await new Promise((resolve) => {
-    star.on('webrtc-ready', ({ from }) => {
-      console.log(`✅ Star received webrtc-ready from Partner (${from})`);
-      // Star sends offer
+    let callerReceived = false;
+    let calleeReceived = false;
+
+    star.on('start-webrtc-call', ({ to }) => {
+      console.log(`✅ Star designated as CALLER to target: ${to}`);
+      callerReceived = true;
+      // Caller sends offer
       star.emit('signal-offer', {
-        to: from,
+        to,
         offer: { type: 'offer', sdp: 'fake-sdp-star-offer' }
       });
+    });
+
+    partner.on('expect-webrtc-call', ({ from }) => {
+      console.log(`✅ Partner designated as CALLEE from source: ${from}`);
+      calleeReceived = true;
     });
 
     partner.on('signal-offer', ({ from, offer }) => {
@@ -102,22 +112,9 @@ async function runTest() {
     });
   });
 
-  // STEP 4: Dual Button Press ("LET'S CELEBRATE 🎂") Synchronization
-  console.log('\n4️⃣ Testing Dual Button Press ("LET\'S CELEBRATE 🎂")...');
-  // Star presses button first
-  star.emit('user-press-celebrate');
-
-  await new Promise((resolve) => {
-    partner.on('celebrate-readiness', ({ readyCount, totalParticipants }) => {
-      console.log(`✅ Readiness update: ${readyCount}/${totalParticipants} ready`);
-      if (readyCount === 1) {
-        resolve();
-      }
-    });
-  });
-
-  // Partner presses button second -> triggers celebration-start simultaneously!
-  partner.emit('user-press-celebrate');
+  // STEP 4: Big Button "🎂 START MY BDAY ❤️" (Single press starts for both!)
+  console.log('\n4️⃣ Testing "🎂 START MY BDAY ❤️" (Single click starts celebration for both)...');
+  partner.emit('start-my-bday');
 
   await new Promise((resolve) => {
     let bothStarted = 0;
@@ -131,9 +128,9 @@ async function runTest() {
     partner.on('celebration-start', (d) => onStart('Partner Device', d));
   });
 
-  // STEP 5 & 6: Birthday Person Blows Candles & Extinguishes -> Advances to cutting
+  // STEP 5: Candle Blowing & Extinguish -> Advances to cutting
   console.log('\n5️⃣ Testing Candle Blowing & Extinguish...');
-  star.emit('candle-blow-intensity', { intensity: 0.8, progress: 65 });
+  star.emit('candle-blow-intensity', { intensity: 0.85, progress: 70 });
 
   await new Promise((resolve) => {
     partner.on('candle-blow-intensity', ({ intensity, progress }) => {
@@ -154,9 +151,9 @@ async function runTest() {
     });
   });
 
-  // STEP 7 & 8: Virtual Cake Knife Slicing & Cake Cut
+  // STEP 6: Virtual Cake Knife Slicing & Cake Cut
   console.log('\n6️⃣ Testing Synchronized Cake Cutting...');
-  star.emit('cut-cake-progress', { progress: 60 });
+  star.emit('cut-cake-progress', { progress: 75 });
 
   await new Promise((resolve) => {
     partner.on('cut-cake-progress', ({ progress }) => {
@@ -177,7 +174,7 @@ async function runTest() {
     });
   });
 
-  console.log('\n🎉 ALL MULTI-PEER REAL-TIME STEPS PASSED WITH 100% SUCCESS!\n');
+  console.log('\n🎉 ALL REAL-TIME STEPS PASSED WITH 100% SUCCESS!\n');
   star.disconnect();
   partner.disconnect();
   process.exit(0);

@@ -36,7 +36,7 @@ const SOCKET_SERVER_URL = window.location.port === '5173'
 export default function App() {
   // Navigation & Screen Stages
   const [appStage, setAppStage] = useState('welcome'); // 'welcome' | 'room-setup' | 'celebration'
-  // 11-step Sequence Stage: 'ready-to-celebrate' | 'blowing' | 'cutting' | 'celebration' | 'letter'
+  // Strict 12-step Sequence Stage: 'ready-to-celebrate' | 'blowing' | 'cutting' | 'celebration' | 'letter'
   const [celebrationStage, setCelebrationStage] = useState('ready-to-celebrate');
 
   // Socket & Room State
@@ -44,7 +44,7 @@ export default function App() {
   const [roomId, setRoomId] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [participants, setParticipants] = useState([]);
-  const [readyUsers, setReadyUsers] = useState([]); // Socket IDs who pressed "LET'S CELEBRATE 🎂"
+  const [isStarting, setIsStarting] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // Music State
@@ -121,20 +121,24 @@ Always and forever with you ❤️`,
       if (roomState) applyRoomState(roomState);
     });
 
-    // Synchronized readiness: "LET'S CELEBRATE 🎂"
-    s.on('celebrate-readiness', ({ readyUserIds }) => {
-      setReadyUsers(readyUserIds || []);
-    });
-
-    // Step 4: Celebration Start triggered when both participants press "LET'S CELEBRATE"
-    s.on('celebration-start', ({ stage, roomState }) => {
+    // Step 4 & 5: Celebration Start triggered by "START MY BDAY ❤️" button
+    const handleCelebrationStart = ({ stage, roomState }) => {
       console.log('[App] Celebration Start triggered! Starting Happy Birthday Song.');
+      setIsStarting(false);
       setCelebrationStage('blowing');
       soundEngine.ensureContext();
       soundEngine.startMusic('birthday');
       soundEngine.playSparkleChime();
       triggerConfettiBurst();
       if (roomState) applyRoomState(roomState);
+    };
+
+    s.on('celebration-start', handleCelebrationStart);
+    s.on('birthday:start', handleCelebrationStart);
+
+    s.on('birthday:music-start', () => {
+      soundEngine.ensureContext();
+      soundEngine.startMusic('birthday');
     });
 
     // Cake config sync
@@ -148,14 +152,21 @@ Always and forever with you ❤️`,
       setCakeConfig(prev => ({ ...prev, candleBlowProgress: progress }));
     });
 
-    // Step 6 -> Step 7: Candles Extinguished -> Immediately shows Virtual Cake Knife
-    s.on('candles-extinguished', ({ roomState }) => {
+    // Step 7 & 8: Candles Extinguished -> Immediately shows Virtual Cake Knife
+    const handleCandlesExtinguished = ({ roomState }) => {
       console.log('[App] Candles extinguished! Advancing to knife cutting.');
       soundEngine.playExtinguishSound();
       setCakeConfig(prev => ({ ...prev, candlesLit: false, candleBlowProgress: 100 }));
       setCelebrationStage('cutting'); // Next stage is cake cutting!
       setIsFireworksActive(false);
       if (roomState) applyRoomState(roomState);
+    };
+
+    s.on('candles-extinguished', handleCandlesExtinguished);
+    s.on('birthday:candles-blown', handleCandlesExtinguished);
+
+    s.on('birthday:knife-ready', () => {
+      setCelebrationStage('cutting');
     });
 
     s.on('candles-relit', ({ roomState }) => {
@@ -181,8 +192,8 @@ Always and forever with you ❤️`,
       setCuttingProgress(progress);
     });
 
-    // Step 9 -> Step 10 & 11: Cake Cut Complete -> Grand Celebration Message & Fireworks
-    s.on('cake-cut-completed', ({ celebrationState, roomState }) => {
+    // Step 10, 11 & 12: Cake Cut Complete -> Grand Celebration Message & Fireworks
+    const handleCakeCutComplete = ({ celebrationState, roomState }) => {
       console.log('[App] Cake cut completed! Showing custom birthday message & fireworks.');
       setIsCutComplete(true);
       setCuttingProgress(100);
@@ -191,6 +202,20 @@ Always and forever with you ❤️`,
       setCelebrationStage('celebration');
       setIsFireworksActive(true);
       if (roomState) applyRoomState(roomState);
+    };
+
+    s.on('cake-cut-completed', handleCakeCutComplete);
+    s.on('birthday:cake-cut', handleCakeCutComplete);
+
+    s.on('birthday:message-reveal', ({ message, name }) => {
+      if (message || name) {
+        setCakeConfig(prev => ({
+          ...prev,
+          message: message || prev.message,
+          name: name || prev.name
+        }));
+      }
+      setIsFireworksActive(true);
     });
 
     // Love Letter Sync
@@ -217,7 +242,6 @@ Always and forever with you ❤️`,
   function applyRoomState(state) {
     if (!state) return;
     if (state.participants) setParticipants(state.participants);
-    if (state.readyUsers) setReadyUsers(state.readyUsers);
     if (state.cakeConfig) setCakeConfig(state.cakeConfig);
     if (state.stage) setCelebrationStage(state.stage);
     if (state.celebrationState) {
@@ -264,12 +288,14 @@ Always and forever with you ❤️`,
     soundEngine.startMusic('romantic');
   };
 
-  // Both users must press "LET'S CELEBRATE 🎂"
-  const handlePressCelebrate = () => {
+  // Big Button Action: "🎂 START MY BDAY ❤️"
+  const handleStartMyBday = () => {
     soundEngine.ensureContext();
     soundEngine.playSparkleChime();
+    setIsStarting(true);
     if (socket && roomId) {
-      socket.emit('user-press-celebrate');
+      socket.emit('start-my-bday');
+      socket.emit('birthday:start');
     }
   };
 
@@ -348,8 +374,6 @@ Always and forever with you ❤️`,
   // Main Celebration Room
   const isBirthdayStar = currentUser?.role === 'star';
   const hasPartnerJoined = participants.length >= 2;
-  const isLocalReady = socket?.id && readyUsers.includes(socket.id);
-  const isPartnerReady = readyUsers.some(id => id !== socket?.id);
 
   return (
     <div className="relative min-h-screen w-full flex flex-col bg-midnight-gradient text-pink-100 overflow-x-hidden select-none">
@@ -421,7 +445,7 @@ Always and forever with you ❤️`,
             <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
             <span className="font-serif-luxury text-sm sm:text-base font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-rose-100 to-amber-300 tracking-wider">
               {celebrationStage === 'blowing' && 'HAPPY BIRTHDAY TO YOU! ❤️'}
-              {celebrationStage === 'cutting' && 'NOW CUT YOUR BIRTHDAY CAKE! 🎂'}
+              {celebrationStage === 'cutting' && "Now it's time to cut your birthday cake! 🎂"}
               {celebrationStage === 'celebration' && `HAPPY BIRTHDAY, ${(cakeConfig.name || 'MY LOVE').toUpperCase()}! 🎉`}
               {celebrationStage === 'letter' && 'UNDER THE MIDNIGHT STARS 💌'}
             </span>
@@ -440,7 +464,20 @@ Always and forever with you ❤️`,
           }`}
         >
           <Users className="w-3.5 h-3.5" />
-          <span>1. Join & Connect</span>
+          <span>1. Live Video Call</span>
+        </span>
+
+        <span className="text-pink-500/30">→</span>
+
+        <span
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full transition-all ${
+            celebrationStage === 'ready-to-celebrate'
+              ? 'text-amber-300/80 font-medium'
+              : 'text-pink-300/60'
+          }`}
+        >
+          <PartyPopper className="w-3.5 h-3.5" />
+          <span>2. Start My Bday</span>
         </span>
 
         <span className="text-pink-500/30">→</span>
@@ -453,7 +490,7 @@ Always and forever with you ❤️`,
           }`}
         >
           <Cake className="w-3.5 h-3.5" />
-          <span>2. Blow Candles</span>
+          <span>3. Blow Candles</span>
         </span>
 
         <span className="text-pink-500/30">→</span>
@@ -466,7 +503,7 @@ Always and forever with you ❤️`,
           }`}
         >
           <UtensilsCrossed className="w-3.5 h-3.5" />
-          <span>3. Cut Cake</span>
+          <span>4. Cut Cake</span>
         </span>
 
         <span className="text-pink-500/30">→</span>
@@ -478,8 +515,8 @@ Always and forever with you ❤️`,
               : 'text-pink-300/60'
           }`}
         >
-          <PartyPopper className="w-3.5 h-3.5" />
-          <span>4. Fireworks & Love Letter</span>
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>5. Fireworks & Message</span>
         </span>
       </div>
 
@@ -504,7 +541,7 @@ Always and forever with you ❤️`,
             </ErrorBoundary>
           </div>
 
-          {/* Bottom Console: Step 3 "LET'S CELEBRATE 🎂" OR Candle Blowing Controls */}
+          {/* Bottom Console: Big Button "🎂 START MY BDAY ❤️" OR Candle Blowing Controls */}
           <div className="w-full mt-2">
             {celebrationStage === 'ready-to-celebrate' ? (
               <div className="relative z-30 max-w-md mx-auto w-full px-5 py-4 rounded-3xl bg-[#1c0828]/95 border-2 border-amber-400/50 shadow-2xl backdrop-blur-2xl text-center select-none animate-fadeIn">
@@ -514,8 +551,14 @@ Always and forever with you ❤️`,
                       Waiting for Partner to Join ❤️
                     </h3>
                     <p className="text-xs sm:text-sm text-pink-200/80 mb-3">
-                      Both of you need to be connected to begin the midnight celebration together!
+                      Both participants must connect to unlock the celebration button!
                     </p>
+                    <button
+                      disabled
+                      className="w-full py-4 px-6 rounded-2xl font-extrabold text-base sm:text-lg bg-white/5 border border-pink-500/20 text-pink-300/40 cursor-not-allowed flex items-center justify-center gap-2 mb-3"
+                    >
+                      <span>🎂 START MY BDAY ❤️</span>
+                    </button>
                     <button
                       onClick={handleCopyLink}
                       className="px-5 py-2.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-semibold border border-pink-400/40 transition-all flex items-center gap-2 mx-auto cursor-pointer"
@@ -527,34 +570,27 @@ Always and forever with you ❤️`,
                 ) : (
                   <>
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span>Both Participants Connected ❤️</span>
                     </div>
 
                     <h3 className="font-serif-luxury text-xl sm:text-2xl font-bold text-amber-200 mb-1">
-                      Ready to Celebrate Together! 🎉
+                      Ready for the Magic! ✨
                     </h3>
 
                     <p className="text-xs text-pink-200/80 mb-4">
-                      {isLocalReady
-                        ? "Waiting for your partner... ⏳ (1/2 Ready)"
-                        : isPartnerReady
-                        ? "Your partner is ready! Press to start the celebration! 💖"
-                        : "Both of you must press the button below to begin the birthday celebration simultaneously!"}
+                      Either participant can press the button below to start the birthday celebration simultaneously!
                     </p>
 
+                    {/* BIG "START MY BDAY" BUTTON */}
                     <button
-                      onClick={handlePressCelebrate}
-                      disabled={isLocalReady}
-                      className={`w-full py-4 px-6 rounded-2xl font-bold text-base sm:text-lg shadow-2xl transition-all duration-300 flex items-center justify-center gap-3 border ${
-                        isLocalReady
-                          ? 'bg-white/10 text-pink-200/70 border-white/10 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 hover:from-amber-400 hover:via-rose-400 hover:to-pink-500 text-white border-amber-300/60 shadow-glow hover:scale-105 active:scale-95 cursor-pointer'
-                      }`}
+                      onClick={handleStartMyBday}
+                      disabled={isStarting}
+                      className="w-full py-4 px-6 rounded-2xl font-extrabold text-lg sm:text-xl shadow-2xl bg-gradient-to-r from-amber-400 via-rose-500 to-pink-500 hover:from-amber-300 hover:via-rose-400 hover:to-pink-400 text-white border-2 border-amber-300/80 shadow-glow hover:scale-105 active:scale-95 transition-all duration-300 flex items-center justify-center gap-3 cursor-pointer"
                     >
-                      <span>🎂</span>
-                      <span>{isLocalReady ? "Waiting for your partner... ⏳" : "LET'S CELEBRATE 🎂"}</span>
-                      {!isLocalReady && <Sparkles className="w-5 h-5 text-amber-200 animate-spin" />}
+                      <span className="text-2xl animate-bounce">🎂</span>
+                      <span>{isStarting ? 'STARTING CELEBRATION... 🎉' : '🎂 START MY BDAY ❤️'}</span>
+                      <Sparkles className="w-5 h-5 text-amber-200 animate-spin" />
                     </button>
                   </>
                 )}
@@ -592,7 +628,7 @@ Always and forever with you ❤️`,
         </div>
       </main>
 
-      {/* Synchronized Cake Cutting Modal (Step 7 & 8) */}
+      {/* Synchronized Cake Cutting Modal (Step 8 & 9) */}
       {celebrationStage === 'cutting' && (
         <CakeCuttingModal
           socket={socket}
@@ -604,7 +640,7 @@ Always and forever with you ❤️`,
         />
       )}
 
-      {/* Grand Fullscreen Fireworks Celebration & Custom Birthday Message (Step 10 & 11) */}
+      {/* Grand Fullscreen Fireworks Celebration & Custom Birthday Message (Step 11 & 12) */}
       {isFireworksActive && (
         <FireworksCelebration
           isActive={isFireworksActive}

@@ -96,7 +96,7 @@ export default function CandleBlowingControls({
 
       <p className="text-xs sm:text-sm text-pink-200/90 font-medium">
         {isBirthdayStar
-          ? 'Close your eyes, make your silent wish, then blow into your microphone!'
+          ? 'Close your eyes, make a wish and blow your candles! ❤️'
           : 'Cheer on the Birthday Star as they make a wish and blow out the candles!'}
       </p>
 
