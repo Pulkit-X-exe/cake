@@ -7,11 +7,17 @@ export default function FireworksCelebration({
   isActive = true,
   partnerName = 'My Love',
   customMessage = 'Happy Birthday to my favorite person in the world!',
+  onOpenMessage = () => {},
   onProceedToLetter = () => {},
   onRelightCandles = () => {}
 }) {
   const canvasRef = useRef(null);
   const [revealedChars, setRevealedChars] = useState(0);
+
+  const handleOpenClick = () => {
+    if (onOpenMessage) onOpenMessage();
+    if (onProceedToLetter) onProceedToLetter();
+  };
 
   // Smooth typewriter / text reveal effect for the custom message
   useEffect(() => {
@@ -107,6 +113,11 @@ export default function FireworksCelebration({
 
     // Animation Loop
     function loop() {
+      if (document.hidden) {
+        animId = requestAnimationFrame(loop);
+        return;
+      }
+
       // Trail fade effect
       ctx.fillStyle = 'rgba(11, 3, 20, 0.22)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -295,12 +306,12 @@ export default function FireworksCelebration({
         {/* Action Buttons */}
         <div className="mt-6 pointer-events-auto flex flex-wrap items-center justify-center gap-3">
           <button
-            onClick={onProceedToLetter}
-            className="group relative inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 text-white font-bold text-sm sm:text-base shadow-xl hover:scale-105 active:scale-95 transition-all duration-300 border border-amber-300/60 cursor-pointer"
+            onClick={handleOpenClick}
+            className="group relative inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 hover:from-amber-400 hover:via-rose-400 hover:to-pink-500 text-white font-extrabold text-base sm:text-lg shadow-xl hover:scale-105 active:scale-95 transition-all duration-300 border-2 border-amber-300/80 cursor-pointer animate-bounce"
           >
             <Mail className="w-5 h-5 text-amber-200" />
-            <span>Open Birthday Love Letter 💌</span>
-            <Sparkles className="w-4 h-4 text-amber-200 animate-pulse" />
+            <span>OPEN THE MESSAGE ❤️</span>
+            <Sparkles className="w-4 h-4 text-amber-200 animate-spin" />
           </button>
 
           <button

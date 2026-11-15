@@ -51,6 +51,11 @@ export default function WelcomeScreen({
     }
 
     function render() {
+      if (document.hidden) {
+        animId = requestAnimationFrame(render);
+        return;
+      }
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       // Stars

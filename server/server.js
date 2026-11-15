@@ -79,7 +79,11 @@ io.on('connection', (socket) => {
     if (!room) {
       room = createDefaultRoom(id);
       room.creatorSocketId = socket.id;
-      if (cakeConfig) room.cakeConfig = { ...room.cakeConfig, ...cakeConfig };
+      if (cakeConfig) {
+        room.cakeConfig = { ...room.cakeConfig, ...cakeConfig };
+        if (cakeConfig.message) room.letter.body = cakeConfig.message;
+        if (cakeConfig.name) room.letter.recipientName = cakeConfig.name;
+      }
       if (letter) room.letter = { ...room.letter, ...letter };
       rooms.set(id, room);
     }
@@ -374,13 +378,38 @@ io.on('connection', (socket) => {
     io.in(currentRoomId).emit('letter-updated', room.letter);
   });
 
-  socket.on('reveal-letter', () => {
+  // Synchronized Birthday Message Open & Reveal (Step 12)
+  const handleOpenBirthdayMessage = () => {
     if (!currentRoomId || !rooms.has(currentRoomId)) return;
     const room = rooms.get(currentRoomId);
+    room.stage = 'message';
+    room.celebrationState.fireworksActive = false;
+    room.celebrationState.messageOpened = true;
     room.letter.revealed = true;
-    room.stage = 'letter';
+    if (room.cakeConfig && room.cakeConfig.message) {
+      room.letter.body = room.cakeConfig.message;
+    }
+    if (room.cakeConfig && room.cakeConfig.name) {
+      room.letter.recipientName = room.cakeConfig.name;
+    }
+
+    io.in(currentRoomId).emit('birthday:open-message', {
+      message: room.cakeConfig.message,
+      name: room.cakeConfig.name,
+      letter: room.letter,
+      roomState: room
+    });
+    io.in(currentRoomId).emit('stage-updated', {
+      stage: 'message',
+      roomState: room
+    });
     io.in(currentRoomId).emit('letter-revealed', room.letter);
-  });
+    console.log(`[Open Message] Triggered in room ${currentRoomId}. Advancing to message modal.`);
+  };
+
+  socket.on('open-birthday-message', handleOpenBirthdayMessage);
+  socket.on('birthday:open-message', handleOpenBirthdayMessage);
+  socket.on('reveal-letter', handleOpenBirthdayMessage);
 
   // Send Romantic Wishes
   socket.on('send-wish', ({ wish, author }) => {

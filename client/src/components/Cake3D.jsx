@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-export default function Cake3D({
+function Cake3DComponent({
   cakeConfig = {
     name: 'My Love',
     message: 'Happy Birthday!',
@@ -56,9 +56,9 @@ export default function Cake3D({
       powerPreference: 'high-performance'
     });
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     rendererRef.current = renderer;
@@ -187,6 +187,8 @@ export default function Cake3D({
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      if (document.hidden) return; // Skip rendering when tab is in background
+
       const delta = clock.getDelta();
       const elapsedTime = clock.getElapsedTime();
 
@@ -363,12 +365,28 @@ export default function Cake3D({
     });
   }
 
+  // Helper to dispose Three.js meshes, geometries, and materials safely
+  function disposeMeshTree(obj) {
+    if (!obj) return;
+    obj.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => m && m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    });
+  }
+
   // Build the complete 3D Cake with Pedestal, Tiers, Frosting, Piping, Candles and Plaque
   function rebuildCake() {
     const cakeGroup = cakeGroupRef.current;
     if (!cakeGroup) return;
 
-    // Clear previous cake meshes
+    // Properly dispose previous cake meshes to prevent GPU memory leaks
+    disposeMeshTree(cakeGroup);
     while (cakeGroup.children.length > 0) {
       cakeGroup.remove(cakeGroup.children[0]);
     }
@@ -732,8 +750,11 @@ export default function Cake3D({
     <div
       ref={containerRef}
       onClick={onCakeClick}
-      className="relative w-full h-full min-h-[380px] sm:min-h-[460px] md:min-h-[520px] flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
+      className="relative w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
     />
   );
 }
+
+const Cake3D = React.memo(Cake3DComponent);
+export default Cake3D;
 

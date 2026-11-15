@@ -42,7 +42,7 @@ const RTC_CONFIG = {
   iceCandidatePoolSize: 10
 };
 
-export default function VideoCall({
+function VideoCallComponent({
   socket,
   roomId,
   currentUser,
@@ -72,6 +72,8 @@ export default function VideoCall({
   const [remoteUserRole, setRemoteUserRole] = useState('partner');
   const [mediaError, setMediaError] = useState(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [localIsPortrait, setLocalIsPortrait] = useState(false);
+  const [remoteIsPortrait, setRemoteIsPortrait] = useState(false);
 
   // Hat customization
   const [hatYOffset, setHatYOffset] = useState(0.22);
@@ -566,15 +568,15 @@ export default function VideoCall({
         </div>
       )}
 
-      {/* DUAL SIMULTANEOUS VIDEO GRID: EQUAL IMPORTANCE, COMPLETE CAMERA FRAMES (object-contain) WITH AMBIENT BLURRED BACKDROP */}
-      <div className="relative flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-3 overflow-hidden rounded-2xl min-h-[360px] md:min-h-0">
+      {/* GOOGLE MEET-STYLE LANDSCAPE VIDEO GRID (16:9 PROPORTIONS, EQUAL SIZES, SIDE BY SIDE) */}
+      <div className="relative w-full grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 select-none">
         
-        {/* PANEL 1: BIRTHDAY STAR 👑 (Local if currentUser is Star, Remote if currentUser is Partner) */}
-        <div className="relative w-full h-full min-h-[175px] md:min-h-0 rounded-2xl overflow-hidden border-2 border-amber-400/50 bg-[#12031c] shadow-xl flex items-center justify-center">
+        {/* PANEL 1: BIRTHDAY STAR 👑 */}
+        <div className="relative aspect-video w-full rounded-2xl overflow-hidden border-2 border-amber-400/40 bg-[#0d0316] shadow-xl flex items-center justify-center">
           {isLocalStar ? (
             // LOCAL USER IS THE BIRTHDAY STAR
             <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-              {/* Ambient Blurred Video Background */}
+              {/* Ambient Blurred Video Background for portrait or letterboxed feeds */}
               {localStreamRef.current && !isVideoDisabled && (
                 <video
                   ref={setLocalBlurVideo}
@@ -582,40 +584,48 @@ export default function VideoCall({
                   playsInline
                   muted
                   aria-hidden="true"
-                  className={`absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-125 pointer-events-none ${
-                    facingMode === 'user' ? '-scale-x-125' : ''
+                  className={`absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-110 pointer-events-none ${
+                    facingMode === 'user' ? '-scale-x-110' : ''
                   }`}
                 />
               )}
 
-              {/* Main Crisp Contained Video: Entire camera frame is visible without cropping */}
+              {/* Main Video Feed (object-cover for landscape, object-contain for portrait) */}
               <video
                 ref={setLocalVideo}
                 autoPlay
                 playsInline
                 muted
-                className={`relative z-10 w-full h-full object-contain transition-opacity duration-300 ${
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setLocalIsPortrait(v.videoHeight > v.videoWidth);
+                  }
+                }}
+                className={`relative z-10 w-full h-full ${
+                  localIsPortrait ? 'object-contain' : 'object-cover'
+                } transition-opacity duration-300 ${
                   isVideoDisabled ? 'opacity-0' : 'opacity-100'
                 } ${facingMode === 'user' ? '-scale-x-100' : ''}`}
               />
 
-              {/* Birthday Hat Overlay on Local Birthday Star */}
+              {/* Head-Tracked Birthday Hat Overlay */}
               {!isVideoDisabled && (
                 <BirthdayHatOverlay
                   videoRef={localVideoRef}
                   isBirthdayPerson={true}
                   hatStyle={hatStyle}
                   isMirrored={facingMode === 'user'}
-                  objectFit="contain"
+                  objectFit={localIsPortrait ? 'contain' : 'cover'}
                   yOffsetRatio={hatYOffset}
                   sizeScale={hatSizeScale}
                 />
               )}
 
-              {/* Video Off Placeholder */}
+              {/* Video Off State */}
               {isVideoDisabled && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-b from-purple-950/90 to-amber-950/90">
-                  <div className="w-16 h-16 rounded-full bg-amber-400/20 border-2 border-amber-400/60 flex items-center justify-center text-3xl shadow-glow">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-b from-[#1f062b] to-[#0c0212]">
+                  <div className="w-14 h-14 rounded-full bg-amber-400/20 border-2 border-amber-400/50 flex items-center justify-center text-2xl shadow-lg">
                     👑
                   </div>
                   <p className="mt-2 text-amber-200 text-xs font-semibold">{currentUser?.name || 'You'}</p>
@@ -623,10 +633,28 @@ export default function VideoCall({
                 </div>
               )}
 
-              {/* Badge */}
-              <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 border border-amber-400/60 text-amber-300 text-[11px] font-semibold backdrop-blur-md shadow-md">
-                <Crown className="w-3.5 h-3.5 text-amber-400" />
-                <span>{currentUser?.name || 'You'} (Birthday Star 👑)</span>
+              {/* Top-Right Star Badge */}
+              <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-amber-400/40 text-amber-300 text-[10px] font-semibold backdrop-blur-md">
+                <Crown className="w-3 h-3 text-amber-400" />
+                <span>Birthday Star</span>
+              </div>
+
+              {/* Bottom-Left Participant Info Card (Google Meet Style) */}
+              <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+                <span className="font-semibold text-amber-100">{currentUser?.name || 'You'}</span>
+                <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
+                  {isAudioMuted ? (
+                    <MicOff className="w-3.5 h-3.5 text-rose-400" title="Microphone Muted" />
+                  ) : (
+                    <Mic className="w-3.5 h-3.5 text-emerald-400" title="Microphone Active" />
+                  )}
+                  {isVideoDisabled ? (
+                    <VideoOff className="w-3.5 h-3.5 text-rose-400" title="Camera Off" />
+                  ) : (
+                    <Video className="w-3.5 h-3.5 text-emerald-400" title="Camera Active" />
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -640,63 +668,84 @@ export default function VideoCall({
                   playsInline
                   muted
                   aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-125 pointer-events-none"
+                  className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-110 pointer-events-none"
                 />
               )}
 
-              {/* Main Crisp Contained Video for Remote Star */}
+              {/* Main Crisp Remote Video */}
               <video
                 ref={setRemoteVideo}
                 autoPlay
                 playsInline
-                className={`relative z-10 w-full h-full object-contain transition-opacity duration-300 ${
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setRemoteIsPortrait(v.videoHeight > v.videoWidth);
+                  }
+                }}
+                className={`relative z-10 w-full h-full ${
+                  remoteIsPortrait ? 'object-contain' : 'object-cover'
+                } transition-opacity duration-300 ${
                   isRemoteLive ? 'opacity-100' : 'opacity-0'
                 }`}
               />
 
-              {/* Birthday Hat Overlay on Remote Birthday Star */}
+              {/* Birthday Hat Overlay on Remote Star */}
               {isRemoteLive && (
                 <BirthdayHatOverlay
                   videoRef={remoteVideoRef}
                   isBirthdayPerson={true}
                   hatStyle={hatStyle}
                   isMirrored={false}
-                  objectFit="contain"
+                  objectFit={remoteIsPortrait ? 'contain' : 'cover'}
                   yOffsetRatio={hatYOffset}
                   sizeScale={hatSizeScale}
                 />
               )}
 
-              {/* Remote Star Badge */}
+              {/* Top-Right Star Badge */}
+              <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-amber-400/40 text-amber-300 text-[10px] font-semibold backdrop-blur-md">
+                <Crown className="w-3 h-3 text-amber-400" />
+                <span>Birthday Star</span>
+              </div>
+
+              {/* Bottom-Left Remote Participant Label */}
               {hasRemoteUser && (
-                <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 border border-amber-400/60 text-amber-300 text-[11px] font-semibold backdrop-blur-md shadow-md">
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span>{remoteUserName} (Birthday Star 👑)</span>
+                <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
+                  <span className={`w-2 h-2 rounded-full ${isRemoteLive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400 animate-ping'}`} />
+                  <span className="font-semibold text-amber-100">{remoteUserName}</span>
+                  <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
+                    {isRemoteLive ? (
+                      <Video className="w-3.5 h-3.5 text-emerald-400" title="Live Video" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" title="Connecting" />
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Loading / Waiting States for Remote Star */}
+              {/* Waiting / Connecting Placeholder */}
               {!isRemoteLive && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#1b0526] to-[#0c0212]">
                   {hasRemoteUser ? (
                     <>
-                      <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mb-2" />
+                      <RefreshCw className="w-7 h-7 text-amber-400 animate-spin mb-2" />
                       <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">Connecting Live Video...</h4>
-                      <p className="text-[11px] text-pink-300/70 mt-1">Establishing peer-to-peer camera feed with {remoteUserName}...</p>
+                      <p className="text-[10px] text-pink-300/70 mt-0.5">Establishing peer-to-peer connection with {remoteUserName}...</p>
                     </>
                   ) : (
                     <>
-                      <Crown className="w-10 h-10 text-amber-400/80 animate-bounce mb-2" />
+                      <Crown className="w-8 h-8 text-amber-400/80 animate-pulse mb-2" />
                       <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">Waiting for Birthday Star 👑</h4>
-                      <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
-                        Share the celebration link with the birthday star!
+                      <p className="text-[10px] text-pink-300/70 mt-0.5 max-w-[220px]">
+                        Share invitation link with the birthday star!
                       </p>
                       <button
                         onClick={handleCopyLink}
-                        className="mt-3 px-3 py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium border border-amber-400/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        className="mt-2.5 px-3 py-1 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium border border-amber-400/40 transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
-                        {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
-                        <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
+                        {linkCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-amber-300" />}
+                        <span>{linkCopied ? 'Link Copied!' : 'Copy Link'}</span>
                       </button>
                     </>
                   )}
@@ -706,8 +755,8 @@ export default function VideoCall({
           )}
         </div>
 
-        {/* PANEL 2: CELEBRATING PARTNER 💖 (Local if currentUser is Partner, Remote if currentUser is Star) */}
-        <div className="relative w-full h-full min-h-[175px] md:min-h-0 rounded-2xl overflow-hidden border-2 border-pink-500/40 bg-[#12031c] shadow-xl flex items-center justify-center">
+        {/* PANEL 2: CELEBRATING PARTNER 💖 */}
+        <div className="relative aspect-video w-full rounded-2xl overflow-hidden border-2 border-pink-500/30 bg-[#0d0316] shadow-xl flex items-center justify-center">
           {!isLocalStar ? (
             // LOCAL USER IS THE PARTNER
             <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
@@ -719,26 +768,35 @@ export default function VideoCall({
                   playsInline
                   muted
                   aria-hidden="true"
-                  className={`absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-125 pointer-events-none ${
-                    facingMode === 'user' ? '-scale-x-125' : ''
+                  className={`absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-110 pointer-events-none ${
+                    facingMode === 'user' ? '-scale-x-110' : ''
                   }`}
                 />
               )}
 
-              {/* Main Crisp Contained Video: Entire camera frame is visible without cropping */}
+              {/* Main Local Partner Video */}
               <video
                 ref={setLocalVideo}
                 autoPlay
                 playsInline
                 muted
-                className={`relative z-10 w-full h-full object-contain transition-opacity duration-300 ${
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setLocalIsPortrait(v.videoHeight > v.videoWidth);
+                  }
+                }}
+                className={`relative z-10 w-full h-full ${
+                  localIsPortrait ? 'object-contain' : 'object-cover'
+                } transition-opacity duration-300 ${
                   isVideoDisabled ? 'opacity-0' : 'opacity-100'
                 } ${facingMode === 'user' ? '-scale-x-100' : ''}`}
               />
 
+              {/* Video Off State */}
               {isVideoDisabled && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-b from-pink-950/90 to-purple-950/90">
-                  <div className="w-16 h-16 rounded-full bg-pink-500/20 border-2 border-pink-400/60 flex items-center justify-center text-3xl shadow-glow">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-gradient-to-b from-[#250831] to-[#0c0212]">
+                  <div className="w-14 h-14 rounded-full bg-pink-500/20 border-2 border-pink-400/50 flex items-center justify-center text-2xl shadow-lg">
                     💖
                   </div>
                   <p className="mt-2 text-pink-200 text-xs font-semibold">{currentUser?.name || 'You'}</p>
@@ -746,10 +804,28 @@ export default function VideoCall({
                 </div>
               )}
 
-              {/* Badge */}
-              <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 border border-pink-400/60 text-pink-200 text-[11px] font-semibold backdrop-blur-md shadow-md">
-                <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
-                <span>{currentUser?.name || 'You'} (Celebrating 💖)</span>
+              {/* Top-Right Partner Badge */}
+              <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-pink-400/40 text-pink-200 text-[10px] font-semibold backdrop-blur-md">
+                <Heart className="w-3 h-3 text-rose-400 fill-rose-400" />
+                <span>Celebrating</span>
+              </div>
+
+              {/* Bottom-Left Local Label */}
+              <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+                <span className="font-semibold text-pink-100">{currentUser?.name || 'You'}</span>
+                <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
+                  {isAudioMuted ? (
+                    <MicOff className="w-3.5 h-3.5 text-rose-400" title="Microphone Muted" />
+                  ) : (
+                    <Mic className="w-3.5 h-3.5 text-emerald-400" title="Microphone Active" />
+                  )}
+                  {isVideoDisabled ? (
+                    <VideoOff className="w-3.5 h-3.5 text-rose-400" title="Camera Off" />
+                  ) : (
+                    <Video className="w-3.5 h-3.5 text-emerald-400" title="Camera Active" />
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -763,50 +839,71 @@ export default function VideoCall({
                   playsInline
                   muted
                   aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-125 pointer-events-none"
+                  className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-35 scale-110 pointer-events-none"
                 />
               )}
 
-              {/* Main Crisp Contained Video for Remote Partner */}
+              {/* Main Crisp Remote Partner Video */}
               <video
                 ref={setRemoteVideo}
                 autoPlay
                 playsInline
-                className={`relative z-10 w-full h-full object-contain transition-opacity duration-300 ${
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget;
+                  if (v.videoWidth && v.videoHeight) {
+                    setRemoteIsPortrait(v.videoHeight > v.videoWidth);
+                  }
+                }}
+                className={`relative z-10 w-full h-full ${
+                  remoteIsPortrait ? 'object-contain' : 'object-cover'
+                } transition-opacity duration-300 ${
                   isRemoteLive ? 'opacity-100' : 'opacity-0'
                 }`}
               />
 
-              {/* Remote Partner Badge */}
+              {/* Top-Right Partner Badge */}
+              <div className="absolute top-2.5 right-2.5 z-30 flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/60 border border-pink-400/40 text-pink-200 text-[10px] font-semibold backdrop-blur-md">
+                <Heart className="w-3 h-3 text-rose-400 fill-rose-400" />
+                <span>Celebrating</span>
+              </div>
+
+              {/* Bottom-Left Remote Label */}
               {hasRemoteUser && (
-                <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 border border-pink-400/60 text-pink-200 text-[11px] font-semibold backdrop-blur-md shadow-md">
-                  <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
-                  <span>{remoteUserName} (Celebrating 💖)</span>
+                <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
+                  <span className={`w-2 h-2 rounded-full ${isRemoteLive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-pink-400 animate-ping'}`} />
+                  <span className="font-semibold text-pink-100">{remoteUserName}</span>
+                  <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
+                    {isRemoteLive ? (
+                      <Video className="w-3.5 h-3.5 text-emerald-400" title="Live Video" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5 text-pink-400 animate-spin" title="Connecting" />
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Loading / Waiting States for Remote Partner */}
+              {/* Waiting / Connecting State for Remote Partner */}
               {!isRemoteLive && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#21062c] to-[#0c0212]">
                   {hasRemoteUser ? (
                     <>
-                      <RefreshCw className="w-8 h-8 text-pink-400 animate-spin mb-2" />
+                      <RefreshCw className="w-7 h-7 text-pink-400 animate-spin mb-2" />
                       <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">Connecting Live Video...</h4>
-                      <p className="text-[11px] text-pink-300/70 mt-1">Establishing peer-to-peer camera feed with {remoteUserName}...</p>
+                      <p className="text-[10px] text-pink-300/70 mt-0.5">Establishing peer-to-peer connection with {remoteUserName}...</p>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-10 h-10 text-pink-400 animate-pulse mb-2" />
+                      <Sparkles className="w-8 h-8 text-pink-400 animate-pulse mb-2" />
                       <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">Waiting for Partner ❤️</h4>
-                      <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
-                        Share this invitation link so your partner can sit with you!
+                      <p className="text-[10px] text-pink-300/70 mt-0.5 max-w-[220px]">
+                        Share invitation link with your partner!
                       </p>
                       <button
                         onClick={handleCopyLink}
-                        className="mt-3 px-3 py-1.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-medium border border-pink-400/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                        className="mt-2.5 px-3 py-1 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-medium border border-pink-400/40 transition-colors flex items-center gap-1.5 cursor-pointer"
                       >
-                        {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
-                        <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
+                        {linkCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-amber-300" />}
+                        <span>{linkCopied ? 'Link Copied!' : 'Copy Link'}</span>
                       </button>
                     </>
                   )}
@@ -817,35 +914,38 @@ export default function VideoCall({
         </div>
       </div>
 
-      {/* Connection Quality Pill */}
-      <div className="mt-2 flex items-center justify-between text-[11px] px-1 text-pink-300/70">
-        <div className="flex items-center gap-1.5">
+      {/* GOOGLE MEET-STYLE BOTTOM CONTROLS DOCK */}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 px-1">
+        {/* Connection Status Pill */}
+        <div className="flex items-center gap-2 text-xs">
           {isBothConnected && isRemoteLive ? (
-            <>
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-300 font-medium">Both Participants Live (P2P Video Active) ❤️</span>
-            </>
+            <div className="flex items-center gap-1.5 text-emerald-300 font-medium bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 shadow-sm">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
+              <span>Both Connected Live (P2P) ❤️</span>
+            </div>
           ) : hasRemoteUser ? (
-            <>
+            <div className="flex items-center gap-1.5 text-amber-300 font-medium bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
               <RefreshCw className="w-3 h-3 text-amber-400 animate-spin" />
-              <span className="text-amber-300">Connecting live video feeds...</span>
-            </>
+              <span>Connecting Video Call...</span>
+            </div>
           ) : (
-            <>
+            <div className="flex items-center gap-1.5 text-pink-300/70 bg-pink-500/10 px-3 py-1 rounded-full border border-pink-500/20">
               <Wifi className="w-3 h-3 text-pink-400" />
-              <span>Waiting for partner to join</span>
-            </>
+              <span>Waiting for Partner</span>
+            </div>
           )}
         </div>
 
-        {/* Video Call Controls Dock */}
-        <div className="flex items-center gap-2">
+        {/* Circular Action Buttons */}
+        <div className="flex items-center gap-2.5">
           {/* Mute Mic */}
           <button
             onClick={toggleAudio}
-            title={isAudioMuted ? 'Unmute Mic' : 'Mute Mic'}
-            className={`p-2 rounded-full transition-colors cursor-pointer ${
-              isAudioMuted ? 'bg-rose-600 text-white shadow-glow-rose' : 'bg-white/10 hover:bg-white/20 text-pink-100'
+            title={isAudioMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+            className={`p-2.5 sm:p-3 rounded-full transition-all duration-200 cursor-pointer shadow-lg ${
+              isAudioMuted
+                ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50'
+                : 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
             }`}
           >
             {isAudioMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -855,18 +955,20 @@ export default function VideoCall({
           <button
             onClick={toggleVideo}
             title={isVideoDisabled ? 'Turn Camera On' : 'Turn Camera Off'}
-            className={`p-2 rounded-full transition-colors cursor-pointer ${
-              isVideoDisabled ? 'bg-rose-600 text-white shadow-glow-rose' : 'bg-white/10 hover:bg-white/20 text-pink-100'
+            className={`p-2.5 sm:p-3 rounded-full transition-all duration-200 cursor-pointer shadow-lg ${
+              isVideoDisabled
+                ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50'
+                : 'bg-white/10 hover:bg-white/20 text-white border border-white/15'
             }`}
           >
             {isVideoDisabled ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
           </button>
 
-          {/* Flip Camera */}
+          {/* Flip Camera (Front / Back) */}
           <button
             onClick={switchFacingMode}
-            title="Flip Camera"
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-pink-100 transition-colors cursor-pointer"
+            title="Switch Camera (Front/Back)"
+            className="p-2.5 sm:p-3 rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-all duration-200 cursor-pointer shadow-lg"
           >
             <SwitchCamera className="w-4 h-4" />
           </button>
@@ -875,14 +977,14 @@ export default function VideoCall({
           {isLocalStar && (
             <button
               onClick={() => setShowHatSettings(!showHatSettings)}
-              title="Adjust Hat Placement"
-              className={`p-2 rounded-full transition-colors cursor-pointer ${
+              title="Adjust Party Hat"
+              className={`p-2.5 sm:p-3 rounded-full transition-all duration-200 cursor-pointer shadow-lg ${
                 showHatSettings
-                  ? 'bg-amber-500/30 text-amber-200 border border-amber-400 shadow-glow'
-                  : 'bg-white/10 hover:bg-white/20 text-pink-100'
+                  ? 'bg-amber-400 text-black font-bold shadow-amber-900/50'
+                  : 'bg-white/10 hover:bg-white/20 text-amber-300 border border-white/15'
               }`}
             >
-              <Crown className="w-4 h-4 text-amber-300" />
+              <Crown className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -890,11 +992,11 @@ export default function VideoCall({
 
       {/* Hat Fine-Tuning Drawer */}
       {showHatSettings && isLocalStar && (
-        <div className="mt-2 p-3 rounded-2xl bg-black/95 border border-amber-400/50 shadow-2xl backdrop-blur-xl text-xs space-y-2 animate-fadeIn">
+        <div className="mt-3 p-3.5 rounded-2xl bg-black/90 border border-amber-400/40 shadow-2xl backdrop-blur-xl text-xs space-y-2 animate-fadeIn max-w-md mx-auto w-full">
           <div className="flex items-center justify-between text-amber-300 font-semibold border-b border-white/10 pb-1.5">
             <span className="flex items-center gap-1.5">
               <Crown className="w-3.5 h-3.5" />
-              <span>Birthday Hat Placement</span>
+              <span>Party Hat Placement</span>
             </span>
             <button
               onClick={() => {
@@ -907,16 +1009,16 @@ export default function VideoCall({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 pt-1">
             <div>
               <div className="flex justify-between text-[10px] text-pink-200 mb-0.5">
-                <span>Height:</span>
+                <span>Height Offset:</span>
                 <span className="font-mono text-amber-300">{Math.round(hatYOffset * 100)}%</span>
               </div>
               <input
                 type="range"
                 min="0.10"
-                max="0.50"
+                max="0.45"
                 step="0.02"
                 value={hatYOffset}
                 onChange={e => setHatYOffset(parseFloat(e.target.value))}
@@ -926,7 +1028,7 @@ export default function VideoCall({
 
             <div>
               <div className="flex justify-between text-[10px] text-pink-200 mb-0.5">
-                <span>Size:</span>
+                <span>Hat Size:</span>
                 <span className="font-mono text-amber-300">{Math.round(hatSizeScale * 100)}%</span>
               </div>
               <input
@@ -945,3 +1047,6 @@ export default function VideoCall({
     </div>
   );
 }
+
+const VideoCall = React.memo(VideoCallComponent);
+export default VideoCall;

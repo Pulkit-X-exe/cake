@@ -174,6 +174,25 @@ async function runTest() {
     });
   });
 
+  // STEP 7: "OPEN THE MESSAGE ❤️" Button & Romantic Keepsake Reveal
+  console.log('\n7️⃣ Testing "OPEN THE MESSAGE ❤️" Button Synchronization...');
+  partner.emit('open-birthday-message');
+
+  await new Promise((resolve) => {
+    let bothOpened = 0;
+    const onOpen = (device, { message, name, letter, roomState }) => {
+      console.log(`✅ [${device}] Received birthday:open-message! Recipient: ${name}, Message: "${message}"`);
+      if (roomState.stage === 'message' && !roomState.celebrationState.fireworksActive) {
+        console.log(`✅ [${device}] Room stage correctly set to "message" and fireworks dismissed.`);
+      }
+      bothOpened++;
+      if (bothOpened === 2) resolve();
+    };
+
+    star.on('birthday:open-message', (data) => onOpen('Star Device', data));
+    partner.on('birthday:open-message', (data) => onOpen('Partner Device', data));
+  });
+
   console.log('\n🎉 ALL REAL-TIME STEPS PASSED WITH 100% SUCCESS!\n');
   star.disconnect();
   partner.disconnect();

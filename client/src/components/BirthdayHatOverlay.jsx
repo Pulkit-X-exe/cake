@@ -55,6 +55,7 @@ export default function BirthdayHatOverlay({
     let faceLandmarker = null;
     let animationFrameId = null;
     let lastVideoTime = -1;
+    let lastDetectTime = 0;
 
     async function initMediaPipe() {
       try {
@@ -126,8 +127,10 @@ export default function BirthdayHatOverlay({
 
             let detectedFace = false;
 
-            // MediaPipe Face Tracking
-            if (faceLandmarker && video.currentTime !== lastVideoTime && !video.paused) {
+            // MediaPipe Face Tracking (Optimized 25fps throttle to eliminate lag)
+            const now = performance.now();
+            if (faceLandmarker && (now - lastDetectTime >= 40) && video.currentTime !== lastVideoTime && !video.paused) {
+              lastDetectTime = now;
               lastVideoTime = video.currentTime;
               try {
                 const results = faceLandmarker.detectForVideo(video, performance.now());

@@ -172,6 +172,19 @@ export default function CakeCuttingModal({
           <p className="text-xs text-amber-300/80">
             Separating the slices... Preparing the grand celebration! ✨
           </p>
+
+          <button
+            onClick={() => {
+              if (socket) {
+                socket.emit('open-birthday-message');
+                socket.emit('birthday:open-message');
+              }
+              if (onProceedToLetter) onProceedToLetter();
+            }}
+            className="mt-3 w-full py-3 px-5 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 hover:from-amber-400 text-white font-bold text-sm sm:text-base shadow-xl transition-all flex items-center justify-center gap-2 border border-amber-300/60 cursor-pointer"
+          >
+            <span>OPEN THE MESSAGE ❤️</span>
+          </button>
         </div>
       )}
     </div>

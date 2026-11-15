@@ -25,6 +25,7 @@ import CandleBlowingControls from './components/CandleBlowingControls';
 import FireworksCelebration from './components/FireworksCelebration';
 import CakeCuttingModal from './components/CakeCuttingModal';
 import RomanticEnding from './components/RomanticEnding';
+import RomanticMessageModal from './components/RomanticMessageModal';
 import ReactionFloatingBar from './components/ReactionFloatingBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import { soundEngine } from './utils/audio';
@@ -218,14 +219,35 @@ Always and forever with you ❤️`,
       setIsFireworksActive(true);
     });
 
+    // Birthday Message & Love Letter Open Sync
+    const handleOpenMessageEvent = ({ message, name, letter, roomState }) => {
+      console.log('[App] Birthday message opened! Showing romantic keepsake letter.');
+      setIsFireworksActive(false);
+      setCelebrationStage('message');
+      if (message || name) {
+        setCakeConfig(prev => ({
+          ...prev,
+          message: message || prev.message,
+          name: name || prev.name
+        }));
+      }
+      if (letter) {
+        setLetterData({
+          ...letter,
+          revealed: true,
+          body: message || letter.body
+        });
+      }
+      if (roomState) applyRoomState(roomState);
+      soundEngine.playSparkleChime();
+    };
+
+    s.on('birthday:open-message', handleOpenMessageEvent);
+    s.on('letter-revealed', handleOpenMessageEvent);
+
     // Love Letter Sync
     s.on('letter-updated', (letter) => {
       setLetterData(letter);
-    });
-
-    s.on('letter-revealed', (letter) => {
-      setLetterData(letter);
-      setCelebrationStage('letter');
     });
 
     // Wishes
@@ -313,18 +335,31 @@ Always and forever with you ❤️`,
     setTimeout(() => setLinkCopied(false), 2000);
   };
 
-  // Transition from Cake Cutting / Celebration to Romantic Letter
-  const handleProceedToLetter = () => {
-    setCelebrationStage('letter');
+  // Action: "OPEN THE MESSAGE ❤️"
+  const handleOpenMessage = () => {
+    setIsFireworksActive(false);
+    setCelebrationStage('message');
+    soundEngine.playSparkleChime();
     if (socket && roomId) {
-      socket.emit('set-stage', { stage: 'letter' });
+      socket.emit('open-birthday-message');
+      socket.emit('birthday:open-message');
+      socket.emit('reveal-letter');
     }
   };
 
+  // Transition from Cake Cutting / Celebration to Romantic Letter
+  const handleProceedToLetter = handleOpenMessage;
+
   // Relight Candles to celebrate again
   const handleRelightCandles = () => {
+    setIsFireworksActive(false);
+    setIsCutComplete(false);
+    setCuttingProgress(0);
+    setCakeConfig(prev => ({ ...prev, candlesLit: true, candleBlowProgress: 0 }));
+    setCelebrationStage('blowing');
     if (socket && roomId) {
       socket.emit('relight-candles');
+      socket.emit('birthday:relight-candles');
     }
   };
 
@@ -520,17 +555,16 @@ Always and forever with you ❤️`,
         </span>
       </div>
 
-      {/* Main Celebration Content Area: Responsive 2-column layout */}
-      <main className="relative flex-1 w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-stretch justify-center p-3 sm:p-5 gap-4 sm:gap-6">
+      {/* Main Celebration Content Area: Cake on Center-Stage + Google Meet Landscape Video Grid */}
+      <main className="relative flex-1 w-full max-w-6xl mx-auto flex flex-col items-center justify-start p-2 sm:p-4 gap-4 sm:gap-5">
         
-        {/* Left Side: 3D Birthday Cake & START MY BDAY Console */}
-        <div className="relative w-full lg:w-7/12 min-h-[500px] sm:min-h-[560px] lg:min-h-[620px] flex flex-col justify-between rounded-3xl bg-cake-stage border border-pink-500/20 p-3 sm:p-5 shadow-2xl overflow-visible">
-          
+        {/* 1. 3D Birthday Cake Section (Illuminated Centerpiece, Compact & Elegant) */}
+        <div className="relative w-full max-w-4xl h-[230px] sm:h-[270px] md:h-[300px] rounded-3xl bg-cake-stage border border-amber-400/25 shadow-2xl flex items-center justify-center overflow-hidden">
           {/* Subtle Stage Lighting Ring */}
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-pink-500/10 via-transparent to-transparent" />
 
-          {/* 3D Cake Canvas Component with dedicated height */}
-          <div className="relative w-full h-[280px] sm:h-[340px] lg:h-[380px] flex items-center justify-center">
+          {/* 3D Cake Canvas Component */}
+          <div className="relative w-full h-full flex items-center justify-center">
             <ErrorBoundary>
               <Cake3D
                 cakeConfig={cakeConfig}
@@ -540,71 +574,10 @@ Always and forever with you ❤️`,
               />
             </ErrorBoundary>
           </div>
-
-          {/* Directly below the 3D Birthday Cake: Prominent Controls Area */}
-          <div className="w-full relative z-30 mt-3 px-1 pb-1">
-            {celebrationStage === 'ready-to-celebrate' ? (
-              <div className="max-w-md mx-auto w-full p-4 sm:p-5 rounded-3xl bg-[#1c0828]/95 border-2 border-amber-400/50 shadow-2xl backdrop-blur-2xl text-center select-none animate-fadeIn">
-                {/* Connection Status Badge */}
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2 shadow-sm">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{hasPartnerJoined ? 'Both Participants Connected ❤️' : 'Waiting for Partner to Join ❤️'}</span>
-                </div>
-
-                <p className="text-xs text-pink-200/90 mb-3">
-                  {hasPartnerJoined
-                    ? 'Both participants are ready! Click the button below to begin the birthday celebration!'
-                    : 'Share your room invitation link so your partner can join you for the celebration!'}
-                </p>
-
-                {/* LARGE, PROMINENT, GLOWING "START MY BDAY" BUTTON */}
-                <button
-                  onClick={handleStartMyBday}
-                  disabled={isStarting}
-                  className={`w-full py-4 px-6 rounded-2xl font-extrabold text-lg sm:text-2xl shadow-2xl transition-all duration-300 flex items-center justify-center gap-3 border-2 ${
-                    isStarting
-                      ? 'bg-amber-600/50 text-white/80 border-amber-400/40 cursor-wait'
-                      : 'bg-gradient-to-r from-amber-400 via-rose-500 to-pink-500 hover:from-amber-300 hover:via-rose-400 hover:to-pink-400 text-white border-amber-300 shadow-glow hover:scale-[1.03] active:scale-[0.98] cursor-pointer'
-                  }`}
-                >
-                  <span className="text-2xl sm:text-3xl animate-bounce">🎂</span>
-                  <span>{isStarting ? 'STARTING CELEBRATION... 🎉' : '🎂 START MY BDAY ❤️'}</span>
-                  <Sparkles className="w-6 h-6 text-amber-200 animate-spin" />
-                </button>
-
-                {!hasPartnerJoined && (
-                  <div className="mt-3">
-                    <button
-                      onClick={handleCopyLink}
-                      className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-pink-200 text-xs font-medium border border-white/20 transition-all flex items-center gap-1.5 mx-auto cursor-pointer"
-                    >
-                      {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
-                      <span>{linkCopied ? 'Link Copied to Clipboard!' : 'Copy Invitation Link'}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <CandleBlowingControls
-                socket={socket}
-                roomId={roomId}
-                candlesLit={cakeConfig.candlesLit}
-                isBirthdayStar={isBirthdayStar}
-                onExtinguishCandles={() => {
-                  setCakeConfig(prev => ({ ...prev, candlesLit: false, candleBlowProgress: 100 }));
-                  setCelebrationStage('cutting'); // Lead directly to knife cutting!
-                }}
-                onBlowIntensity={(intensity, progress) => {
-                  setBlowIntensity(intensity);
-                  setCakeConfig(prev => ({ ...prev, candleBlowProgress: progress }));
-                }}
-              />
-            )}
-          </div>
         </div>
 
-        {/* Right Side: WebRTC Live 2-Person Video Call with Head-Tracked Hat */}
-        <div className="relative w-full lg:w-5/12 min-h-[460px] sm:min-h-[520px] lg:min-h-[620px] flex flex-col items-center justify-center rounded-3xl bg-black/40 border border-pink-500/20 shadow-2xl p-2 sm:p-3 overflow-hidden">
+        {/* 2. Google Meet-Style Landscape Video Grid (16:9 Landscape Panels Side-by-Side) */}
+        <div className="relative w-full max-w-5xl">
           <ErrorBoundary>
             <VideoCall
               socket={socket}
@@ -615,6 +588,106 @@ Always and forever with you ❤️`,
             />
           </ErrorBoundary>
         </div>
+
+        {/* 3. Celebration Stage Actions & Instructions Console */}
+        <div className="relative z-30 w-full max-w-xl mx-auto mt-1 mb-4">
+          {celebrationStage === 'ready-to-celebrate' && (
+            <div className="w-full p-4 sm:p-5 rounded-2xl bg-[#160421]/90 border border-amber-400/35 shadow-2xl backdrop-blur-xl text-center select-none animate-fadeIn">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold mb-2 shadow-sm">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{hasPartnerJoined ? 'Both Participants Connected ❤️' : 'Waiting for Partner to Join ❤️'}</span>
+              </div>
+
+              <p className="text-xs text-pink-200/90 mb-3">
+                {hasPartnerJoined
+                  ? 'Both participants are connected! Click below to begin the birthday celebration!'
+                  : 'Share your room invitation link so your partner can join you for the celebration!'}
+              </p>
+
+              {/* LARGE "START MY BDAY" BUTTON */}
+              <button
+                onClick={handleStartMyBday}
+                disabled={isStarting}
+                className={`w-full py-3.5 sm:py-4 px-6 rounded-2xl font-extrabold text-base sm:text-xl shadow-2xl transition-all duration-300 flex items-center justify-center gap-3 border-2 ${
+                  isStarting
+                    ? 'bg-amber-600/50 text-white/80 border-amber-400/40 cursor-wait'
+                    : 'bg-gradient-to-r from-amber-400 via-rose-500 to-pink-500 hover:from-amber-300 hover:via-rose-400 hover:to-pink-400 text-white border-amber-300 shadow-glow hover:scale-[1.02] active:scale-[0.98] cursor-pointer'
+                }`}
+              >
+                <span className="text-xl sm:text-2xl animate-bounce">🎂</span>
+                <span>{isStarting ? 'STARTING CELEBRATION... 🎉' : '🎂 START MY BDAY ❤️'}</span>
+                <Sparkles className="w-5 h-5 text-amber-200 animate-spin" />
+              </button>
+
+              {!hasPartnerJoined && (
+                <div className="mt-3">
+                  <button
+                    onClick={handleCopyLink}
+                    className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-pink-200 text-xs font-medium border border-white/20 transition-all flex items-center gap-1.5 mx-auto cursor-pointer"
+                  >
+                    {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
+                    <span>{linkCopied ? 'Link Copied to Clipboard!' : 'Copy Invitation Link'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {celebrationStage === 'blowing' && (
+            <CandleBlowingControls
+              socket={socket}
+              roomId={roomId}
+              candlesLit={cakeConfig.candlesLit}
+              isBirthdayStar={isBirthdayStar}
+              onExtinguishCandles={() => {
+                setCakeConfig(prev => ({ ...prev, candlesLit: false, candleBlowProgress: 100 }));
+                setCelebrationStage('cutting');
+              }}
+              onBlowIntensity={(intensity, progress) => {
+                setBlowIntensity(intensity);
+                setCakeConfig(prev => ({ ...prev, candleBlowProgress: progress }));
+              }}
+            />
+          )}
+
+          {celebrationStage === 'cutting' && (
+            <CakeCuttingModal
+              socket={socket}
+              roomId={roomId}
+              cuttingProgress={cuttingProgress}
+              isCutComplete={isCutComplete}
+              onProceedToLetter={handleOpenMessage}
+              isHost={currentUser?.role === 'star'}
+            />
+          )}
+
+          {celebrationStage === 'celebration' && (
+            <div className="w-full p-4 sm:p-5 rounded-2xl bg-[#160421]/90 border-2 border-amber-400/40 shadow-2xl backdrop-blur-xl text-center select-none animate-fadeIn">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/20 text-pink-300 text-xs font-semibold mb-2">
+                <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
+                <span>CAKE HAS BEEN CUT 🍰</span>
+              </div>
+
+              <h3 className="font-serif-luxury text-xl sm:text-2xl font-bold text-amber-100 mb-2">
+                A Sweet Keepsake Awaits You ❤️
+              </h3>
+
+              <p className="text-xs text-pink-200/90 mb-4">
+                Click below to unseal your personalized birthday message and love letter together!
+              </p>
+
+              {/* LARGE "OPEN THE MESSAGE" BUTTON */}
+              <button
+                onClick={handleOpenMessage}
+                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 hover:from-amber-400 hover:via-rose-400 hover:to-pink-500 text-white font-extrabold text-base sm:text-xl shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2.5 border-2 border-amber-300/80 cursor-pointer animate-pulse"
+              >
+                <Mail className="w-5 h-5 text-amber-200" />
+                <span>OPEN THE MESSAGE ❤️</span>
+                <Sparkles className="w-5 h-5 text-amber-200 animate-spin" />
+              </button>
+            </div>
+          )}
+        </div>
       </main>
 
       {/* Synchronized Cake Cutting Modal (Step 8 & 9) */}
@@ -624,7 +697,7 @@ Always and forever with you ❤️`,
           roomId={roomId}
           cuttingProgress={cuttingProgress}
           isCutComplete={isCutComplete}
-          onProceedToLetter={handleProceedToLetter}
+          onProceedToLetter={handleOpenMessage}
           isHost={currentUser?.role === 'star'}
         />
       )}
@@ -635,34 +708,25 @@ Always and forever with you ❤️`,
           isActive={isFireworksActive}
           partnerName={cakeConfig.name}
           customMessage={cakeConfig.message}
-          onProceedToLetter={handleProceedToLetter}
+          onOpenMessage={handleOpenMessage}
+          onProceedToLetter={handleOpenMessage}
           onRelightCandles={handleRelightCandles}
         />
       )}
 
-      {/* Romantic Surprise Ending & Love Letter Overlay */}
-      {celebrationStage === 'letter' && (
-        <div className="fixed inset-0 z-40 bg-black/85 backdrop-blur-2xl overflow-y-auto">
-          <div className="absolute top-4 right-4 z-50">
-            <button
-              onClick={() => setCelebrationStage('blowing')}
-              className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-pink-200 text-xs font-semibold backdrop-blur-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Back to Cake</span>
-            </button>
-          </div>
-
-          <RomanticEnding
-            letter={letterData}
-            onUpdateLetter={handleUpdateLetter}
-            onRevealLetter={handleRevealLetter}
-            onRelightCandles={handleRelightCandles}
-            onSendWish={handleSendWish}
-            wishes={wishes}
-            isHost={currentUser?.role === 'star'}
-          />
-        </div>
+      {/* Romantic Birthday Message Modal / Letter Keepsake (Step 12) */}
+      {(celebrationStage === 'message' || celebrationStage === 'letter') && (
+        <RomanticMessageModal
+          isOpen={celebrationStage === 'message' || celebrationStage === 'letter'}
+          onClose={() => setCelebrationStage('ready-to-celebrate')}
+          socket={socket}
+          roomId={roomId}
+          cakeConfig={cakeConfig}
+          letterData={letterData}
+          currentUser={currentUser}
+          onRelightCandles={handleRelightCandles}
+          isHost={currentUser?.role === 'star'}
+        />
       )}
 
       {/* Floating Reactions Bar (Hearts, Kisses, Cheers) */}
