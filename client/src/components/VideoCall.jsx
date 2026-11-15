@@ -442,6 +442,129 @@ function VideoCallComponent({
     return pc;
   }, [socket, playVideoSafely, handleIncomingOffer, rtcConfig, createAndSendOffer]);
 
+  // Progressive Media Stream Acquisition (with 5-tier graceful fallback)
+  const getMediaWithFallback = async (facing) => {
+    // Strategy 1: Ideal 720p HD video + audio
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: facing || 'user',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: true
+      });
+    } catch (e1) {
+      console.warn('[WebRTC Media] Strategy 1 (ideal HD) failed:', e1.message);
+    }
+
+    // Strategy 2: Standard video with facingMode + audio
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing || 'user' },
+        audio: true
+      });
+    } catch (e2) {
+      console.warn('[WebRTC Media] Strategy 2 (facingMode) failed:', e2.message);
+    }
+
+    // Strategy 3: Unconstrained basic video + audio
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+    } catch (e3) {
+      console.warn('[WebRTC Media] Strategy 3 (basic video+audio) failed:', e3.message);
+    }
+
+    // Strategy 4: Video only (e.g. if microphone is blocked or in use)
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: true });
+    } catch (e4) {
+      console.warn('[WebRTC Media] Strategy 4 (video only) failed:', e4.message);
+    }
+
+    // Strategy 5: Audio only (if camera is exclusively held by another tab or app)
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e5) {
+      console.error('[WebRTC Media] Strategy 5 (audio only) failed:', e5.message);
+      throw e5;
+    }
+  };
+
+  // Acquire or reconnect Camera stream on demand
+  const acquireCamera = async () => {
+    try {
+      setMediaError(null);
+      let stream = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode },
+          audio: false
+        });
+      } catch (e1) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+
+      if (!stream) return;
+      const newVideoTrack = stream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream();
+      }
+
+      // Clean up previous video tracks
+      localStreamRef.current.getVideoTracks().forEach(t => {
+        localStreamRef.current.removeTrack(t);
+        t.stop();
+      });
+
+      localStreamRef.current.addTrack(newVideoTrack);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+      if (localBlurVideoRef.current) {
+        localBlurVideoRef.current.srcObject = localStreamRef.current;
+        localBlurVideoRef.current.play().catch(() => {});
+      }
+
+      setIsVideoDisabled(false);
+      setMediaError(null);
+
+      // Update WebRTC peer connection
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track && s.track.kind === 'video');
+        if (videoSender) {
+          await videoSender.replaceTrack(newVideoTrack);
+          console.log('[WebRTC] Successfully attached newly acquired camera track to existing sender');
+        } else {
+          pc.addTrack(newVideoTrack, localStreamRef.current);
+          if (targetPeerIdRef.current) {
+            createAndSendOffer(targetPeerIdRef.current);
+          }
+        }
+      }
+
+      if (socket) {
+        socket.emit('update-user-media', { isVideoOff: false });
+      }
+    } catch (err) {
+      console.warn('[VideoCall] acquireCamera failed:', err);
+      setMediaError(
+        err.name === 'NotAllowedError'
+          ? 'Camera access denied. Please click the lock or camera icon in your browser URL bar to allow.'
+          : 'Could not access camera. Please close any other tab or app using the camera and tap Retry.'
+      );
+    }
+  };
+
   // Initialize Media Stream & WebRTC
   useEffect(() => {
     let isCancelled = false;
@@ -449,14 +572,7 @@ function VideoCallComponent({
     async function initMedia() {
       try {
         setMediaError(null);
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode,
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: true
-        });
+        const stream = await getMediaWithFallback(facingMode);
 
         if (isCancelled) {
           stream.getTracks().forEach(t => t.stop());
@@ -464,6 +580,9 @@ function VideoCallComponent({
         }
 
         localStreamRef.current = stream;
+        const hasVideo = stream.getVideoTracks().length > 0;
+        setIsVideoDisabled(!hasVideo);
+
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           localVideoRef.current.play().catch(() => {});
@@ -479,31 +598,22 @@ function VideoCallComponent({
 
         setupPeerConnection(stream);
 
-        // Notify room that our media & WebRTC connection are ready
         if (socket) {
           socket.emit('webrtc-ready');
         }
+
+        if (!hasVideo) {
+          setMediaError('Camera not available. Close other tabs using your camera and click Retry or the camera icon.');
+        }
       } catch (err) {
-        console.warn('[VideoCall] Camera getUserMedia error:', err);
+        console.warn('[VideoCall] Media capture error:', err);
         setMediaError(
           err.name === 'NotAllowedError'
-            ? 'Camera / microphone access denied. Please click the camera icon in your browser URL bar to allow.'
-            : 'Camera could not be accessed. If another tab is using the camera, you can still participate!'
+            ? 'Camera / microphone access denied. Please click the camera/lock icon in your browser URL bar to allow.'
+            : 'Camera could not be accessed. If another tab is using the camera, close it and click Retry!'
         );
-
-        // Audio fallback if video fails
-        try {
-          const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (!isCancelled) {
-            localStreamRef.current = audioOnly;
-            setIsVideoDisabled(true);
-            setupPeerConnection(audioOnly);
-            if (socket) socket.emit('webrtc-ready');
-          }
-        } catch (e) {
-          setupPeerConnection(null);
-          if (socket) socket.emit('webrtc-ready');
-        }
+        setupPeerConnection(null);
+        if (socket) socket.emit('webrtc-ready');
       }
     }
 
@@ -645,7 +755,7 @@ function VideoCallComponent({
     }
   };
 
-  const toggleVideo = () => {
+  const toggleVideo = async () => {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0];
       if (videoTrack) {
@@ -654,8 +764,11 @@ function VideoCallComponent({
         if (socket) {
           socket.emit('update-user-media', { isVideoOff: !videoTrack.enabled });
         }
+        return;
       }
     }
+    // If no video track exists yet, acquire camera directly
+    await acquireCamera();
   };
 
   const switchFacingMode = () => {
@@ -681,10 +794,10 @@ function VideoCallComponent({
             <span>{mediaError}</span>
           </div>
           <button
-            onClick={() => setFacingMode(prev => (prev === 'user' ? 'user' : 'user'))}
-            className="px-2 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer"
+            onClick={acquireCamera}
+            className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded text-[11px] font-semibold shrink-0 cursor-pointer shadow transition-all active:scale-95"
           >
-            Retry
+            Retry Camera 📷
           </button>
         </div>
       )}
