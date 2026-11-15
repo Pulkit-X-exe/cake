@@ -30,11 +30,9 @@ import ReactionFloatingBar from './components/ReactionFloatingBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import { soundEngine } from './utils/audio';
 
-const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_URL || (
-  window.location.port === '5173'
-    ? 'http://localhost:3001'
-    : window.location.origin
-);
+const SOCKET_SERVER_URL = window.location.port === '5173'
+  ? 'http://localhost:3001'
+  : (import.meta.env.VITE_SOCKET_URL || window.location.origin);
 
 export default function App() {
   // Navigation & Screen Stages
@@ -300,11 +298,12 @@ Always and forever with you ❤️`,
 
   // Handle joining or creating room
   const handleJoinOrCreateRoom = ({ roomId: id, userName, role, cakeConfig: newCakeConfig, personalMessage, letter }) => {
-    if (!socket) return;
+    const finalRoomId = (id || Math.random().toString(36).substring(2, 8)).toUpperCase();
+    const finalUserName = (userName && userName.trim()) || (role === 'star' ? 'Birthday Star' : 'Partner');
 
     const user = {
-      name: userName,
-      role, // 'star' | 'partner'
+      name: finalUserName,
+      role: role || 'star',
       isStar: role === 'star'
     };
     setCurrentUser(user);
@@ -318,8 +317,8 @@ Always and forever with you ❤️`,
       : (letter?.body || letterData.body);
 
     const initialLetter = {
-      senderName: role === 'partner' ? userName : (letter?.senderName || 'Forever Yours'),
-      recipientName: role === 'star' ? userName : (newCakeConfig?.name || 'Birthday Star'),
+      senderName: role === 'partner' ? finalUserName : (letter?.senderName || 'Forever Yours'),
+      recipientName: role === 'star' ? finalUserName : (newCakeConfig?.name || 'Birthday Star'),
       title: letter?.title || 'Under the Midnight Stars',
       body: messageText,
       revealed: false
@@ -329,27 +328,23 @@ Always and forever with you ❤️`,
       setLetterData(initialLetter);
     }
 
-    socket.emit('create-room', {
-      roomId: id,
-      userName,
-      role,
-      cakeConfig: newCakeConfig,
-      letter: initialLetter,
-      personalMessage: messageText
-    });
+    // Immediately advance to celebration screen!
+    setRoomId(finalRoomId);
+    setAppStage('celebration');
 
-    socket.emit('join-room', {
-      roomId: id,
-      userName,
-      role,
-      cakeConfig: newCakeConfig,
-      letter: initialLetter,
-      personalMessage: messageText
-    });
-
-    setRoomId(id);
     soundEngine.ensureContext();
     soundEngine.startMusic('romantic');
+
+    if (socket) {
+      socket.emit('join-room', {
+        roomId: finalRoomId,
+        userName: finalUserName,
+        role: role || 'star',
+        cakeConfig: newCakeConfig,
+        letter: initialLetter,
+        personalMessage: messageText
+      });
+    }
   };
 
   // Big Button Action: "🎂 START MY BDAY ❤️"

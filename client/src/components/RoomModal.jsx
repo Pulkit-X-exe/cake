@@ -213,10 +213,9 @@ export default function RoomModal({
               <label className="block text-xs font-semibold text-pink-200 mb-1">Your Name</label>
               <input
                 type="text"
-                required
                 value={userName}
                 onChange={e => setUserName(e.target.value)}
-                placeholder="e.g. Alex"
+                placeholder="e.g. Alex (optional)"
                 className="w-full px-3 py-2 bg-black/40 border border-pink-500/30 rounded-xl text-pink-100 text-sm focus:outline-none focus:ring-2 focus:ring-pink-400"
               />
             </div>
