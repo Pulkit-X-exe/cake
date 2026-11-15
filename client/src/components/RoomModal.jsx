@@ -285,22 +285,34 @@ export default function RoomModal({
                 </div>
               </div>
 
-              {/* Personal Birthday Message / Keepsake Letter */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-pink-200">
-                    Your Personal Birthday Message / Keepsake Letter 💌
-                  </label>
-                  <span className="text-[10px] text-amber-300/80">Shown inside the opened letter</span>
+              {/* Personal Birthday Message / Keepsake Letter - Only for Celebrating Partner */}
+              {role === 'partner' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-semibold text-pink-200">
+                      Your Personal Birthday Message / Keepsake Letter 💌
+                    </label>
+                    <span className="text-[10px] text-amber-300/80">Shown inside the opened letter</span>
+                  </div>
+                  <textarea
+                    rows={4}
+                    value={cakeMessage}
+                    onChange={e => setCakeMessage(e.target.value)}
+                    placeholder="Write your special midnight birthday message here..."
+                    className="w-full px-3 py-2 bg-black/50 border border-pink-500/30 rounded-xl text-pink-100 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400 placeholder-pink-400/40 leading-relaxed font-sans"
+                  />
                 </div>
-                <textarea
-                  rows={4}
-                  value={cakeMessage}
-                  onChange={e => setCakeMessage(e.target.value)}
-                  placeholder="Write your special midnight birthday message here..."
-                  className="w-full px-3 py-2 bg-black/50 border border-pink-500/30 rounded-xl text-pink-100 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400 placeholder-pink-400/40 leading-relaxed font-sans"
-                />
-              </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-pink-950/20 border border-pink-500/20 flex items-start gap-2.5">
+                  <span className="text-base">💌</span>
+                  <div>
+                    <h5 className="text-[11px] font-semibold text-pink-200">Secret Birthday Surprise Letter</h5>
+                    <p className="text-[10px] text-pink-300/70 leading-relaxed mt-0.5">
+                      As the Birthday Star, your celebrating partner will write a private surprise keepsake letter for you. You'll get to open and read it after cutting the cake! ✨
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Theme color selectors */}
               <div>

@@ -30,9 +30,11 @@ import ReactionFloatingBar from './components/ReactionFloatingBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import { soundEngine } from './utils/audio';
 
-const SOCKET_SERVER_URL = window.location.port === '5173'
-  ? 'http://localhost:3001'
-  : window.location.origin;
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_URL || (
+  window.location.port === '5173'
+    ? 'http://localhost:3001'
+    : window.location.origin
+);
 
 export default function App() {
   // Navigation & Screen Stages

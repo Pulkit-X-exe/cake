@@ -179,13 +179,15 @@ export default function RomanticMessageModal({
                 <span className="text-xs text-amber-800/80 font-sans font-semibold hidden sm:inline">
                   For {recipientName}
                 </span>
-                <button
-                  onClick={() => setIsEditing(!isEditing)}
-                  className="px-2.5 py-1 text-xs font-sans rounded-full bg-amber-900/10 hover:bg-amber-900/20 text-amber-950 flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5 text-amber-800" />
-                  <span>{isEditing ? 'Cancel' : 'Edit Message'}</span>
-                </button>
+                {currentUser?.role !== 'star' && (
+                  <button
+                    onClick={() => setIsEditing(!isEditing)}
+                    className="px-2.5 py-1 text-xs font-sans rounded-full bg-amber-900/10 hover:bg-amber-900/20 text-amber-950 flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-800" />
+                    <span>{isEditing ? 'Cancel' : 'Edit Message'}</span>
+                  </button>
+                )}
               </div>
             </div>
 

@@ -76,7 +76,7 @@ function VideoCallComponent({
   const [remoteIsPortrait, setRemoteIsPortrait] = useState(false);
 
   // Hat customization
-  const [hatYOffset, setHatYOffset] = useState(0.22);
+  const [hatYOffset, setHatYOffset] = useState(0.36);
   const [hatSizeScale, setHatSizeScale] = useState(0.88);
   const [showHatSettings, setShowHatSettings] = useState(false);
 

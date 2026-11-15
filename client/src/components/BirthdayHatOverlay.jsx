@@ -12,7 +12,7 @@ export default function BirthdayHatOverlay({
   hatStyle = 'royal-gold',
   isMirrored = true,
   objectFit = 'contain',
-  yOffsetRatio = 0.22,
+  yOffsetRatio = 0.36,
   sizeScale = 0.88
 }) {
   const canvasRef = useRef(null);
@@ -174,11 +174,12 @@ export default function BirthdayHatOverlay({
                     // Head width across cheek/ears
                     const headWidth = Math.hypot(pEar1.x - pEar2.x, pEar1.y - pEar2.y) || (faceHeight * 0.75);
 
-                    // Place the base of the party hat right at the crown/hairline ABOVE the forehead
-                    const hairOffset = faceHeight * (yOffsetRatio || 0.22);
+                    // Place the base of the party hat right at the crown/hairline comfortably ABOVE the forehead
+                    const hairOffset = faceHeight * (yOffsetRatio || 0.36);
                     const hatBaseX = pForehead.x + unitUpX * hairOffset;
-                    // Ensure hat base is strictly above the forehead by at least 15px
-                    const hatBaseY = Math.min(pForehead.y - 15, pForehead.y + unitUpY * hairOffset);
+                    // Ensure hat base is strictly above the forehead by at least 32px or 25% face height so it never blocks eyes
+                    const minSafeTop = pForehead.y - Math.max(32, faceHeight * 0.25);
+                    const hatBaseY = Math.min(minSafeTop, pForehead.y + unitUpY * hairOffset);
 
                     const targetSize = Math.max(80, Math.min(185, headWidth * (sizeScale || 0.88)));
 
