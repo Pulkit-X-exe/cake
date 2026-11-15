@@ -4,6 +4,7 @@
   "description": "Premium Interactive Virtual Birthday Cake Cutting Website",
   "main": "server/server.js",
   "scripts": {
+    "postinstall": "npm --prefix client install",
     "dev:server": "node server/server.js",
     "dev:client": "npm run dev --prefix client",
     "build": "npm run build --prefix client",

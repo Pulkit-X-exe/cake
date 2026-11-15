@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -14,6 +16,111 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
+  }
+});
+
+// Production High-Availability ICE Servers (STUN + TURN over UDP, TCP, and TLS)
+function getDefaultIceServers() {
+  return [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+    // Metered OpenRelay High-Availability TURN Relays (UDP, TCP, and TLS)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelay',
+      credential: 'openrelay'
+    },
+    {
+      urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelay',
+      credential: 'openrelay'
+    },
+    {
+      urls: [
+        'turn:turn.matrix.org:3478?transport=udp',
+        'turn:turn.matrix.org:3478?transport=tcp'
+      ]
+    }
+  ];
+}
+
+// Cached Metered credentials
+let cachedMeteredIce = null;
+let lastMeteredFetchTime = 0;
+
+async function getIceServers() {
+  const appName = process.env.METERED_APP_NAME || process.env.TURN_APP_NAME;
+  const apiKey = process.env.METERED_API_KEY || process.env.TURN_API_KEY;
+
+  // 1. If Metered credentials configured via environment variables
+  if (appName && apiKey) {
+    const now = Date.now();
+    if (cachedMeteredIce && (now - lastMeteredFetchTime < 10 * 60 * 1000)) {
+      return cachedMeteredIce;
+    }
+    try {
+      const response = await fetch(`https://${appName}.metered.ca/api/v1/turn/credentials?apiKey=${apiKey}`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (response.ok) {
+        const iceData = await response.json();
+        if (Array.isArray(iceData) && iceData.length > 0) {
+          cachedMeteredIce = iceData;
+          lastMeteredFetchTime = now;
+          console.log('[WebRTC TURN] Successfully fetched fresh Metered TURN credentials from API.');
+          return iceData;
+        }
+      }
+    } catch (err) {
+      console.warn('[WebRTC TURN] Metered API fetch notice, using fallback relays:', err.message);
+    }
+  }
+
+  // 2. If standard TURN_SECRET (RFC 5766 time-based HMAC) is configured
+  if (process.env.TURN_SECRET && process.env.TURN_SERVER_URL) {
+    const expiry = Math.floor(Date.now() / 1000) + 24 * 3600; // 24 hours
+    const username = `${expiry}:midnight-celebration`;
+    const hmac = crypto.createHmac('sha1', process.env.TURN_SECRET);
+    hmac.update(username);
+    const credential = hmac.digest('base64');
+    return [
+      { urls: 'stun:stun.l.google.com:19302' },
+      {
+        urls: [
+          `turn:${process.env.TURN_SERVER_URL}:3478?transport=udp`,
+          `turn:${process.env.TURN_SERVER_URL}:3478?transport=tcp`,
+          `turns:${process.env.TURN_SERVER_URL}:5349?transport=tcp`
+        ],
+        username,
+        credential
+      }
+    ];
+  }
+
+  return getDefaultIceServers();
+}
+
+// Health and ICE REST API endpoints
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', serverTime: new Date().toISOString() });
+});
+
+app.get('/api/ice-servers', async (req, res) => {
+  try {
+    const iceServers = await getIceServers();
+    res.json({ iceServers });
+  } catch (err) {
+    res.json({ iceServers: getDefaultIceServers() });
   }
 });
 
@@ -69,6 +176,22 @@ io.on('connection', (socket) => {
   console.log(`[Socket Connected] ID: ${socket.id}`);
 
   let currentRoomId = null;
+
+  // Real-time ICE Server Credentials
+  socket.on('get-ice-servers', async (callback) => {
+    try {
+      const iceServers = await getIceServers();
+      if (typeof callback === 'function') {
+        callback({ iceServers });
+      } else {
+        socket.emit('ice-servers', { iceServers });
+      }
+    } catch (e) {
+      const fallback = getDefaultIceServers();
+      if (typeof callback === 'function') callback({ iceServers: fallback });
+      else socket.emit('ice-servers', { iceServers: fallback });
+    }
+  });
 
   // Create Room
   socket.on('create-room', ({ roomId, userName, role, cakeConfig, letter, personalMessage }) => {
@@ -515,10 +638,15 @@ io.on('connection', (socket) => {
 
 // Serve frontend in production
 const clientDist = path.join(__dirname, '../client/dist');
+const indexHtml = path.join(clientDist, 'index.html');
 app.use(express.static(clientDist));
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(clientDist, 'index.html'));
+  if (fs.existsSync(indexHtml)) {
+    res.sendFile(indexHtml);
+  } else {
+    res.send('✨ Our Midnight Celebration Server is live and healthy!');
+  }
 });
 
 const PORT = process.env.PORT || 3001;

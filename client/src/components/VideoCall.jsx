@@ -16,30 +16,43 @@ import {
 } from 'lucide-react';
 import BirthdayHatOverlay from './BirthdayHatOverlay';
 
-const RTC_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
-  ],
-  iceCandidatePoolSize: 10
+// High-availability default STUN + multi-transport TURN servers (fallback)
+const DEFAULT_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun3.l.google.com:19302' },
+  { urls: 'stun:stun4.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+  { urls: 'stun:global.stun.twilio.com:3478' },
+  // OpenRelay Metered TURN Relays (UDP, TCP, and TLS)
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: 'turns:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelay',
+    credential: 'openrelay'
+  },
+  {
+    urls: [
+      'turn:turn.matrix.org:3478?transport=udp',
+      'turn:turn.matrix.org:3478?transport=tcp'
+    ]
+  }
+];
+
+const DEFAULT_RTC_CONFIG = {
+  iceServers: DEFAULT_ICE_SERVERS,
+  iceCandidatePoolSize: 10,
+  iceTransportPolicy: 'all',
+  bundlePolicy: 'max-bundle'
 };
 
 function VideoCallComponent({
@@ -66,6 +79,8 @@ function VideoCallComponent({
   const [isVideoDisabled, setIsVideoDisabled] = useState(false);
   const [facingMode, setFacingMode] = useState('user');
   const [connectionStatus, setConnectionStatus] = useState('waiting'); // 'waiting' | 'connecting' | 'connected' | 'disconnected'
+  const [iceStatusText, setIceStatusText] = useState('Connecting to partner...');
+  const [rtcConfig, setRtcConfig] = useState(DEFAULT_RTC_CONFIG);
   const [isRemoteLive, setIsRemoteLive] = useState(false);
   const [hasRemoteUser, setHasRemoteUser] = useState(false);
   const [remoteUserName, setRemoteUserName] = useState('Partner');
@@ -164,15 +179,49 @@ function VideoCallComponent({
     }
   }, [participants, socket?.id]);
 
+  // Dynamic ICE server retrieval (STUN + TURN credentials)
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function fetchIceConfig() {
+      try {
+        if (socket) {
+          socket.emit('get-ice-servers', ({ iceServers }) => {
+            if (!isCancelled && iceServers && Array.isArray(iceServers) && iceServers.length > 0) {
+              console.log('[WebRTC ICE] Configured with', iceServers.length, 'servers via Socket.IO');
+              setRtcConfig(prev => ({ ...prev, iceServers }));
+            }
+          });
+        }
+
+        const res = await fetch('/api/ice-servers');
+        if (res.ok) {
+          const data = await res.json();
+          if (!isCancelled && data.iceServers && Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+            console.log('[WebRTC ICE] Configured with', data.iceServers.length, 'servers via REST API');
+            setRtcConfig(prev => ({ ...prev, iceServers: data.iceServers }));
+          }
+        }
+      } catch (err) {
+        console.log('[WebRTC ICE] Using fallback high-availability STUN + TURN servers');
+      }
+    }
+
+    fetchIceConfig();
+    return () => { isCancelled = true; };
+  }, [socket]);
+
   // Flush queued ICE candidates helper
   const flushQueuedIceCandidates = useCallback(async (pc) => {
     if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) return;
-    while (iceCandidatesQueueRef.current.length > 0) {
-      const cand = iceCandidatesQueueRef.current.shift();
+    const queue = [...iceCandidatesQueueRef.current];
+    iceCandidatesQueueRef.current = [];
+    for (const cand of queue) {
       try {
         await pc.addIceCandidate(new RTCIceCandidate(cand));
+        console.log('[WebRTC ICE] Successfully applied queued candidate');
       } catch (err) {
-        console.warn('[WebRTC] Add queued ICE error:', err);
+        console.warn('[WebRTC ICE] Add queued ICE error:', err.message);
       }
     }
   }, []);
@@ -246,7 +295,8 @@ function VideoCallComponent({
       try { peerConnectionRef.current.close(); } catch (e) {}
     }
 
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    console.log('[WebRTC] Initializing RTCPeerConnection with servers:', rtcConfig.iceServers?.length || 0);
+    const pc = new RTCPeerConnection(rtcConfig);
     peerConnectionRef.current = pc;
 
     // Add local tracks to peer connection
@@ -259,6 +309,22 @@ function VideoCallComponent({
         }
       });
     }
+
+    // Diagnostic inspector for selected ICE candidate pair
+    const checkSelectedCandidatePair = async () => {
+      try {
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+          if (report.type === 'candidate-pair' && (report.selected || report.state === 'succeeded')) {
+            const local = stats.get(report.localCandidateId);
+            const remote = stats.get(report.remoteCandidateId);
+            const isRelay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
+            console.log(`[ICE Diagnostic] Selected Pair: Local [${local?.candidateType}] (${local?.protocol}) <--> Remote [${remote?.candidateType}] (${remote?.protocol})`);
+            console.log(`[ICE Diagnostic] Traversal Path: ${isRelay ? 'TURN RELAY (Symmetric NAT bypassed)' : 'DIRECT P2P'}`);
+          }
+        });
+      } catch (e) {}
+    };
 
     // Remote Track Handler
     pc.ontrack = (event) => {
@@ -287,28 +353,83 @@ function VideoCallComponent({
       setIsRemoteLive(true);
       setHasRemoteUser(true);
       setConnectionStatus('connected');
+      setIceStatusText('Video connected ❤️');
+      checkSelectedCandidatePair();
     };
 
-    // ICE Candidate generation
+    // ICE Candidate Generation with diagnostic inspection
     pc.onicecandidate = (event) => {
-      if (event.candidate && socket) {
-        socket.emit('signal-ice', {
-          to: targetPeerIdRef.current,
-          candidate: event.candidate
-        });
+      if (event.candidate) {
+        const type = event.candidate.type;
+        const protocol = event.candidate.protocol;
+        const host = `${event.candidate.address || event.candidate.ip || 'unknown'}:${event.candidate.port}`;
+        console.log(`[ICE Candidate Generated] Type: [${type}], Protocol: ${protocol}, Target: ${host}`);
+
+        if (socket) {
+          socket.emit('signal-ice', {
+            to: targetPeerIdRef.current,
+            candidate: event.candidate
+          });
+        }
+      } else {
+        console.log('[ICE Gathering] Local ICE candidate gathering completed.');
       }
     };
 
+    // ICE Gathering State change
+    pc.onicegatheringstatechange = () => {
+      console.log('[WebRTC Diagnostic] iceGatheringState:', pc.iceGatheringState);
+    };
+
+    // ICE Connection State change
+    pc.oniceconnectionstatechange = () => {
+      console.log('[WebRTC Diagnostic] iceConnectionState:', pc.iceConnectionState);
+      if (pc.iceConnectionState === 'checking') {
+        setConnectionStatus('connecting');
+        setIceStatusText('Establishing secure video connection...');
+      } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        setConnectionStatus('connected');
+        setIceStatusText('Video connected ❤️');
+        setIsRemoteLive(true);
+        checkSelectedCandidatePair();
+      } else if (pc.iceConnectionState === 'disconnected') {
+        setConnectionStatus('connecting');
+        setIceStatusText('Connection interrupted. Reconnecting...');
+      } else if (pc.iceConnectionState === 'failed') {
+        console.warn('[WebRTC Diagnostic] ICE connection failed across networks. Triggering ICE restart with TURN relay...');
+        setConnectionStatus('connecting');
+        setIceStatusText('Connection interrupted. Reconnecting...');
+        try {
+          if (pc.restartIce && targetPeerIdRef.current) {
+            pc.restartIce();
+            createAndSendOffer(targetPeerIdRef.current);
+          }
+        } catch (e) {
+          console.error('[WebRTC ICE Restart Error]:', e);
+        }
+      }
+    };
+
+    // Peer Connection State change
     pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] Connection state changed to:', pc.connectionState);
+      console.log('[WebRTC Diagnostic] connectionState:', pc.connectionState);
       if (pc.connectionState === 'connected') {
         setConnectionStatus('connected');
+        setIceStatusText('Video connected ❤️');
         setIsRemoteLive(true);
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setConnectionStatus('disconnected');
+        checkSelectedCandidatePair();
       } else if (pc.connectionState === 'connecting') {
         setConnectionStatus('connecting');
+        setIceStatusText('Establishing secure video connection...');
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        setConnectionStatus('disconnected');
+        setIceStatusText('Connection interrupted. Reconnecting...');
       }
+    };
+
+    // Signaling State change
+    pc.onsignalingstatechange = () => {
+      console.log('[WebRTC Diagnostic] signalingState:', pc.signalingState);
     };
 
     // If an offer arrived while media was initializing, process it now!
@@ -319,7 +440,7 @@ function VideoCallComponent({
     }
 
     return pc;
-  }, [socket, playVideoSafely, handleIncomingOffer]);
+  }, [socket, playVideoSafely, handleIncomingOffer, rtcConfig, createAndSendOffer]);
 
   // Initialize Media Stream & WebRTC
   useEffect(() => {
@@ -714,6 +835,9 @@ function VideoCallComponent({
                 <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
                   <span className={`w-2 h-2 rounded-full ${isRemoteLive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400 animate-ping'}`} />
                   <span className="font-semibold text-amber-100">{remoteUserName}</span>
+                  <span className="text-[10px] text-amber-300/80 border-l border-white/20 pl-2">
+                    {isRemoteLive ? 'Video connected ❤️' : (iceStatusText || 'Connecting to partner...')}
+                  </span>
                   <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
                     {isRemoteLive ? (
                       <Video className="w-3.5 h-3.5 text-emerald-400" title="Live Video" />
@@ -730,8 +854,12 @@ function VideoCallComponent({
                   {hasRemoteUser ? (
                     <>
                       <RefreshCw className="w-7 h-7 text-amber-400 animate-spin mb-2" />
-                      <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">Connecting Live Video...</h4>
-                      <p className="text-[10px] text-pink-300/70 mt-0.5">Establishing peer-to-peer connection with {remoteUserName}...</p>
+                      <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">
+                        {iceStatusText || 'Connecting to partner...'}
+                      </h4>
+                      <p className="text-[10px] text-pink-300/70 mt-0.5">
+                        {connectionStatus === 'connected' ? 'Video connected ❤️' : (iceStatusText || 'Establishing secure video connection...')}
+                      </p>
                     </>
                   ) : (
                     <>
@@ -872,6 +1000,9 @@ function VideoCallComponent({
                 <div className="absolute bottom-2.5 left-2.5 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/75 border border-white/10 text-white text-xs backdrop-blur-md shadow-md">
                   <span className={`w-2 h-2 rounded-full ${isRemoteLive ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-pink-400 animate-ping'}`} />
                   <span className="font-semibold text-pink-100">{remoteUserName}</span>
+                  <span className="text-[10px] text-pink-300/80 border-l border-white/20 pl-2">
+                    {isRemoteLive ? 'Video connected ❤️' : (iceStatusText || 'Connecting to partner...')}
+                  </span>
                   <div className="flex items-center gap-1.5 ml-1 border-l border-white/20 pl-2">
                     {isRemoteLive ? (
                       <Video className="w-3.5 h-3.5 text-emerald-400" title="Live Video" />
@@ -888,8 +1019,12 @@ function VideoCallComponent({
                   {hasRemoteUser ? (
                     <>
                       <RefreshCw className="w-7 h-7 text-pink-400 animate-spin mb-2" />
-                      <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">Connecting Live Video...</h4>
-                      <p className="text-[10px] text-pink-300/70 mt-0.5">Establishing peer-to-peer connection with {remoteUserName}...</p>
+                      <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">
+                        {iceStatusText || 'Connecting to partner...'}
+                      </h4>
+                      <p className="text-[10px] text-pink-300/70 mt-0.5">
+                        {connectionStatus === 'connected' ? 'Video connected ❤️' : (iceStatusText || 'Establishing secure video connection...')}
+                      </p>
                     </>
                   ) : (
                     <>

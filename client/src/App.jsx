@@ -30,9 +30,17 @@ import ReactionFloatingBar from './components/ReactionFloatingBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import { soundEngine } from './utils/audio';
 
+const PRODUCTION_BACKEND_URL = 'https://cake-13di.onrender.com';
+
 const SOCKET_SERVER_URL = window.location.port === '5173'
   ? 'http://localhost:3001'
-  : (import.meta.env.VITE_SOCKET_URL || window.location.origin);
+  : (import.meta.env.VITE_SOCKET_URL || (
+      window.location.hostname.includes('netlify.app') ||
+      window.location.hostname.includes('vercel.app') ||
+      window.location.hostname.includes('github.io')
+        ? PRODUCTION_BACKEND_URL
+        : window.location.origin
+    ));
 
 export default function App() {
   // Navigation & Screen Stages
