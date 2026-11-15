@@ -1,16 +1,21 @@
 import React, { useEffect, useRef } from 'react';
 
+/**
+ * BirthdayHatOverlay
+ * Tracks the user's face using MediaPipe FaceLandmarker and renders a 3D-styled,
+ * animated, perfectly upright birthday party hat on top of the head.
+ */
 export default function BirthdayHatOverlay({
   videoRef,
   isBirthdayPerson = true,
   hatStyle = 'royal-gold',
   isMirrored = true,
-  yOffsetRatio = 0.38,
-  sizeScale = 0.82
+  yOffsetRatio = 0.22,
+  sizeScale = 0.88
 }) {
   const canvasRef = useRef(null);
 
-  // Tracking state ref
+  // Smooth interpolation tracking state
   const stateRef = useRef({
     x: 0,
     y: 0,
@@ -26,7 +31,7 @@ export default function BirthdayHatOverlay({
     particles: []
   });
 
-  // Initialize orbiting sparkles and hearts once
+  // Initialize orbiting sparkles and hearts
   useEffect(() => {
     const particles = [];
     for (let i = 0; i < 14; i++) {
@@ -49,7 +54,6 @@ export default function BirthdayHatOverlay({
     let animationFrameId = null;
     let lastVideoTime = -1;
 
-    // Load MediaPipe Face Landmarker safely
     async function initMediaPipe() {
       try {
         const { FilesetResolver, FaceLandmarker } = await import('@mediapipe/tasks-vision');
@@ -75,7 +79,7 @@ export default function BirthdayHatOverlay({
 
     initMediaPipe();
 
-    // Map normalized coordinates with object-cover
+    // Coordinate mapping with object-cover aspect ratio scaling
     function mapToCanvas(normX, normY, videoW, videoH, canvasW, canvasH, mirrored) {
       if (!videoW || !videoH || videoW <= 0 || videoH <= 0) {
         const x = mirrored ? (1 - normX) * canvasW : normX * canvasW;
@@ -97,7 +101,6 @@ export default function BirthdayHatOverlay({
       return { x, y };
     }
 
-    // Main animation loop
     function renderLoop() {
       try {
         const canvas = canvasRef.current;
@@ -130,44 +133,39 @@ export default function BirthdayHatOverlay({
                     const vW = video.videoWidth || width;
                     const vH = video.videoHeight || height;
 
+                    // Landmark 10: Forehead top
                     const pForehead = mapToCanvas(landmarks[10].x, landmarks[10].y, vW, vH, width, height, isMirrored);
+                    // Landmark 152: Chin bottom
                     const pChin = mapToCanvas(landmarks[152].x, landmarks[152].y, vW, vH, width, height, isMirrored);
-                    const pRightEar = mapToCanvas(landmarks[234].x, landmarks[234].y, vW, vH, width, height, isMirrored);
-                    const pLeftEar = mapToCanvas(landmarks[454].x, landmarks[454].y, vW, vH, width, height, isMirrored);
+                    // Landmark 234 & 454: Cheek edges / Ears
+                    const pEar1 = mapToCanvas(landmarks[234].x, landmarks[234].y, vW, vH, width, height, isMirrored);
+                    const pEar2 = mapToCanvas(landmarks[454].x, landmarks[454].y, vW, vH, width, height, isMirrored);
 
-                    const faceHeight = Math.hypot(pForehead.x - pChin.x, pForehead.y - pChin.y);
+                    // Central facial axis from chin to forehead
+                    const axisDx = pForehead.x - pChin.x;
+                    const axisDy = pForehead.y - pChin.y;
+                    const faceHeight = Math.hypot(axisDx, axisDy) || 1;
 
-                    // Ensure vector points from screen-left to screen-right
-                    let earLeftScreen, earRightScreen;
-                    if (pRightEar.x < pLeftEar.x) {
-                      earLeftScreen = pRightEar;
-                      earRightScreen = pLeftEar;
-                    } else {
-                      earLeftScreen = pLeftEar;
-                      earRightScreen = pRightEar;
-                    }
+                    // Unit vector pointing upward along the head
+                    const unitUpX = axisDx / faceHeight;
+                    const unitUpY = axisDy / faceHeight;
 
-                    const dEarX = Math.max(1, earRightScreen.x - earLeftScreen.x);
-                    const dEarY = earRightScreen.y - earLeftScreen.y;
-                    const headWidth = Math.hypot(dEarX, dEarY);
+                    // Head tilt angle calculation (when chin->forehead is pointing straight up towards negative Y, rollAngle = 0)
+                    let rollAngle = Math.atan2(axisDy, axisDx) + Math.PI / 2;
+                    while (rollAngle > Math.PI) rollAngle -= Math.PI * 2;
+                    while (rollAngle < -Math.PI) rollAngle += Math.PI * 2;
+                    // Clamp roll angle to natural tilt range [-40°, +40°] to prevent inverted flips
+                    rollAngle = Math.max(-0.7, Math.min(0.7, rollAngle));
 
-                    // Guaranteed upright head-roll angle
-                    let rollAngle = Math.atan2(dEarY, dEarX);
-                    rollAngle = Math.max(-0.65, Math.min(0.65, rollAngle));
+                    // Head width across cheek/ears
+                    const headWidth = Math.hypot(pEar1.x - pEar2.x, pEar1.y - pEar2.y) || (faceHeight * 0.75);
 
-                    // Upward direction vector from chin to forehead
-                    const upVectorX = pForehead.x - pChin.x;
-                    const upVectorY = pForehead.y - pChin.y;
-                    const upLen = Math.hypot(upVectorX, upVectorY) || 1;
-                    const unitUpX = upVectorX / upLen;
-                    const unitUpY = upVectorY / upLen;
-
-                    // Crown / Hair placement
-                    const hairOffset = faceHeight * (yOffsetRatio || 0.38);
+                    // Place the base of the party hat right at the crown/hairline ABOVE the forehead
+                    const hairOffset = faceHeight * (yOffsetRatio || 0.22);
                     const hatBaseX = pForehead.x + unitUpX * hairOffset;
                     const hatBaseY = pForehead.y + unitUpY * hairOffset;
 
-                    const targetSize = Math.max(75, Math.min(185, headWidth * (sizeScale || 0.82)));
+                    const targetSize = Math.max(80, Math.min(185, headWidth * (sizeScale || 0.88)));
 
                     if (isFinite(hatBaseX) && isFinite(hatBaseY) && isFinite(targetSize)) {
                       stateRef.current.targetX = hatBaseX;
@@ -184,16 +182,16 @@ export default function BirthdayHatOverlay({
               }
             }
 
-            // Fallback: Flattering top-center head position if face is initializing
+            // Fallback: Flattering top-center head position if face is initializing or lost
             if (!detectedFace) {
               const defaultX = width * 0.5;
-              const defaultY = height * 0.22;
-              const defaultSize = Math.max(85, Math.min(150, width * 0.26));
+              const defaultY = height * 0.18;
+              const defaultSize = Math.max(90, Math.min(150, width * 0.28));
 
               const t = performance.now() * 0.002;
-              const swayX = Math.sin(t) * 3;
-              const swayY = Math.cos(t * 1.5) * 2;
-              const swayAngle = Math.sin(t) * 0.03;
+              const swayX = Math.sin(t) * 2;
+              const swayY = Math.cos(t * 1.5) * 1.5;
+              const swayAngle = Math.sin(t) * 0.02;
 
               stateRef.current.targetX = defaultX + swayX;
               stateRef.current.targetY = defaultY + swayY;
@@ -201,7 +199,7 @@ export default function BirthdayHatOverlay({
               stateRef.current.targetAngle = swayAngle;
             }
 
-            // Smooth interpolation
+            // Smooth interpolation (avoids jitter)
             const s = stateRef.current;
             s.x += (s.targetX - s.x) * 0.25;
             s.y += (s.targetY - s.y) * 0.25;
@@ -214,7 +212,7 @@ export default function BirthdayHatOverlay({
             s.pomPomVel *= 0.85;
             s.pomPomJiggle += s.pomPomVel;
 
-            // Draw Hat only if Birthday Star
+            // Draw Hat only for Birthday Person
             if (isBirthdayPerson && isFinite(s.x) && isFinite(s.y) && s.size > 10) {
               drawPartyHat(ctx, s.x, s.y, s.size, s.angle, s.pomPomJiggle, s.particles, hatStyle);
             }
@@ -246,7 +244,11 @@ export default function BirthdayHatOverlay({
   );
 }
 
-// Draw the upright 3D Party Hat
+/**
+ * Draw the upright 3D Party Hat
+ * (cx, cy) is the base of the hat sitting on top of the head/hairline.
+ * Negative Y extends UPWARDS into the air.
+ */
 function drawPartyHat(ctx, cx, cy, hatWidth, angle, pomPomJiggle, particles = [], style = 'royal-gold') {
   if (!isFinite(cx) || !isFinite(cy) || !isFinite(hatWidth) || hatWidth <= 5) return;
 
@@ -257,9 +259,9 @@ function drawPartyHat(ctx, cx, cy, hatWidth, angle, pomPomJiggle, particles = []
   const halfW = hatWidth * 0.5;
   const hatHeight = hatWidth * 1.35;
   const coneApexX = 0;
-  const coneApexY = -hatHeight; // Points UPWARDS
+  const coneApexY = -hatHeight; // Points UPWARDS into the air
 
-  // 1. Shadow underneath
+  // 1. Shadow underneath the base
   ctx.save();
   ctx.beginPath();
   ctx.ellipse(0, 4, Math.max(1, halfW * 0.8), 7, 0, 0, Math.PI * 2);

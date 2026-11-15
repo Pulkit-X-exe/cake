@@ -1,14 +1,34 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Sparkles, Heart, Cake } from 'lucide-react';
+import { Sparkles, Heart, Mail, RotateCcw } from 'lucide-react';
 import { soundEngine } from '../utils/audio';
 
 export default function FireworksCelebration({
   isActive = true,
-  onProceedToCutting = () => {},
-  partnerName = 'My Love'
+  partnerName = 'My Love',
+  customMessage = 'Happy Birthday to my favorite person in the world!',
+  onProceedToLetter = () => {},
+  onRelightCandles = () => {}
 }) {
   const canvasRef = useRef(null);
+  const [revealedChars, setRevealedChars] = useState(0);
+
+  // Smooth typewriter / text reveal effect for the custom message
+  useEffect(() => {
+    if (!isActive) return;
+    setRevealedChars(0);
+    const msg = customMessage || '';
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      setRevealedChars(count);
+      if (count >= msg.length) {
+        clearInterval(interval);
+      }
+    }, 35);
+
+    return () => clearInterval(interval);
+  }, [isActive, customMessage]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -52,16 +72,16 @@ export default function FireworksCelebration({
     function launchRocket() {
       if (isCancelled) return;
       const startX = canvas.width * 0.15 + Math.random() * (canvas.width * 0.7);
-      const targetY = canvas.height * 0.12 + Math.random() * (canvas.height * 0.4);
+      const targetY = canvas.height * 0.10 + Math.random() * (canvas.height * 0.38);
       const color = colors[Math.floor(Math.random() * colors.length)];
-      const isHeart = Math.random() > 0.6; // 40% chance of heart burst!
+      const isHeart = Math.random() > 0.55; // 45% chance of heart burst!
 
       rockets.push({
         x: startX,
         y: canvas.height,
         targetY,
-        vx: (Math.random() - 0.5) * 2,
-        vy: -(11 + Math.random() * 4),
+        vx: (Math.random() - 0.5) * 2.2,
+        vy: -(12 + Math.random() * 4),
         color,
         isHeart,
         trail: []
@@ -72,23 +92,23 @@ export default function FireworksCelebration({
 
     // Launch initial salvo
     launchRocket();
-    setTimeout(launchRocket, 300);
-    setTimeout(launchRocket, 700);
+    setTimeout(launchRocket, 280);
+    setTimeout(launchRocket, 650);
 
     // Recurring rocket launches
     const rocketInterval = setInterval(() => {
       if (isActive && !isCancelled) {
         launchRocket();
-        if (Math.random() > 0.4) {
-          setTimeout(launchRocket, 250);
+        if (Math.random() > 0.35) {
+          setTimeout(launchRocket, 220);
         }
       }
-    }, 1100);
+    }, 950);
 
     // Animation Loop
     function loop() {
       // Trail fade effect
-      ctx.fillStyle = 'rgba(11, 3, 20, 0.2)';
+      ctx.fillStyle = 'rgba(11, 3, 20, 0.22)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       // 1. Update Rockets
@@ -146,7 +166,7 @@ export default function FireworksCelebration({
     }
 
     function explodeRocket(r) {
-      const count = r.isHeart ? 65 : 85;
+      const count = r.isHeart ? 70 : 90;
       for (let i = 0; i < count; i++) {
         let vx, vy;
         if (r.isHeart) {
@@ -160,7 +180,7 @@ export default function FireworksCelebration({
         } else {
           // Spherical shell
           const angle = Math.random() * Math.PI * 2;
-          const speed = 1.5 + Math.random() * 6;
+          const speed = 1.5 + Math.random() * 6.5;
           vx = Math.cos(angle) * speed;
           vy = Math.sin(angle) * speed;
         }
@@ -207,7 +227,7 @@ export default function FireworksCelebration({
 
   function triggerConfettiExtravaganza() {
     const end = Date.now() + 6 * 1000;
-    const colors = ['#f59e0b', '#ec4899', '#f43f5e', '#fef08a', '#c084fc'];
+    const colors = ['#f59e0b', '#ec4899', '#f43f5e', '#fef08a', '#c084fc', '#ffffff'];
 
     (function frame() {
       confetti({
@@ -234,7 +254,7 @@ export default function FireworksCelebration({
   if (!isActive) return null;
 
   return (
-    <div className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-between p-4 sm:p-8">
+    <div className="fixed inset-0 z-50 pointer-events-none flex flex-col items-center justify-between p-4 sm:p-8 select-none">
       {/* Background Fireworks Canvas */}
       <canvas
         ref={canvasRef}
@@ -245,34 +265,50 @@ export default function FireworksCelebration({
       <div className="relative z-10 mt-6 sm:mt-10 text-center animate-float">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-pink-500/20 border border-pink-400/40 text-pink-300 text-xs sm:text-sm font-semibold backdrop-blur-md shadow-glow-pink">
           <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
-          <span>WISH GRANTED ✨</span>
+          <span>WISH GRANTED ✨ CELEBRATING TOGETHER</span>
           <Heart className="w-4 h-4 text-rose-400 fill-rose-400 animate-bounce" />
         </div>
       </div>
 
-      {/* Grand Romantic Celebration Typography */}
-      <div className="relative z-10 text-center max-w-3xl px-4 py-6 rounded-3xl bg-black/60 border border-amber-400/30 backdrop-blur-xl shadow-2xl animate-pulse-glow">
+      {/* Grand Romantic Celebration Typography & Configured Custom Message */}
+      <div className="relative z-10 text-center max-w-3xl px-6 py-8 rounded-3xl bg-black/75 border-2 border-amber-400/50 backdrop-blur-2xl shadow-2xl animate-pulse-glow">
         <h1 className="font-serif-luxury text-3xl sm:text-5xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-rose-300 to-amber-300 drop-shadow-lg tracking-wide uppercase">
-          HAPPY BIRTHDAY, MY LOVE ❤️
+          HAPPY BIRTHDAY, {partnerName ? partnerName.toUpperCase() : 'MY LOVE'} ❤️
         </h1>
 
         <p className="mt-4 font-serif-luxury italic text-lg sm:text-2xl text-pink-200 font-medium">
           “Even miles apart, we're celebrating together.”
         </p>
 
-        <p className="mt-2 text-xs sm:text-sm text-pink-300/80 max-w-md mx-auto">
-          Tonight the midnight stars are shining for you. Your wish is carried across the sky!
-        </p>
+        {/* Dynamic Custom Birthday Message (from room configuration with smooth animated reveal) */}
+        {customMessage && (
+          <div className="mt-4 p-4 rounded-2xl bg-white/5 border border-pink-400/30 max-w-xl mx-auto shadow-inner">
+            <p className="font-serif-luxury text-base sm:text-lg text-amber-100 font-medium leading-relaxed">
+              "{customMessage.slice(0, revealedChars)}"
+              {revealedChars < customMessage.length && (
+                <span className="inline-block w-1.5 h-4 ml-0.5 bg-amber-300 animate-pulse" />
+              )}
+            </p>
+          </div>
+        )}
 
-        {/* Action Button: Cut the Cake */}
-        <div className="mt-6 pointer-events-auto">
+        {/* Action Buttons */}
+        <div className="mt-6 pointer-events-auto flex flex-wrap items-center justify-center gap-3">
           <button
-            onClick={onProceedToCutting}
-            className="group relative inline-flex items-center gap-3 px-8 py-3.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 text-white font-bold text-base sm:text-lg shadow-xl hover:scale-105 active:scale-95 transition-all duration-300 border border-amber-300/60"
+            onClick={onProceedToLetter}
+            className="group relative inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 text-white font-bold text-sm sm:text-base shadow-xl hover:scale-105 active:scale-95 transition-all duration-300 border border-amber-300/60 cursor-pointer"
           >
-            <Cake className="w-6 h-6 text-amber-200 group-hover:rotate-12 transition-transform" />
-            <span>Now Let's Cut Our Cake Together! 🎂</span>
-            <Sparkles className="w-5 h-5 text-amber-200 animate-pulse" />
+            <Mail className="w-5 h-5 text-amber-200" />
+            <span>Open Birthday Love Letter 💌</span>
+            <Sparkles className="w-4 h-4 text-amber-200 animate-pulse" />
+          </button>
+
+          <button
+            onClick={onRelightCandles}
+            className="inline-flex items-center gap-2 px-5 py-3 rounded-full bg-white/10 hover:bg-white/20 text-pink-200 font-semibold text-xs sm:text-sm backdrop-blur-md transition-all border border-white/20 cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4 text-amber-300" />
+            <span>Celebrate Again 🎂</span>
           </button>
         </div>
       </div>
@@ -282,4 +318,3 @@ export default function FireworksCelebration({
     </div>
   );
 }
-

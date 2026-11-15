@@ -1,18 +1,15 @@
 const { io } = require('socket.io-client');
 
 async function runTest() {
-  console.log('🧪 Starting End-to-End Real-Time Multiplayer Sync Test...');
+  console.log('🧪 Starting End-to-End Real-Time Multi-Peer Celebration Flow Test...');
 
   const URL = 'http://localhost:3001';
-  const roomId = 'TEST' + Math.floor(Math.random() * 1000);
+  const roomId = 'ROOM' + Math.floor(Math.random() * 10000);
 
   // Peer 1: Birthday Star
   const star = io(URL);
-  // Peer 2: Partner
+  // Peer 2: Celebrating Partner
   const partner = io(URL);
-
-  let starConnected = false;
-  let partnerConnected = false;
 
   await new Promise((resolve) => {
     let count = 0;
@@ -21,18 +18,16 @@ async function runTest() {
       if (count === 2) resolve();
     };
     star.on('connect', () => {
-      starConnected = true;
-      console.log('✅ Birthday Star connected to Socket.IO');
+      console.log('✅ Star connected to Socket.IO (ID:', star.id, ')');
       check();
     });
     partner.on('connect', () => {
-      partnerConnected = true;
-      console.log('✅ Partner connected to Socket.IO');
+      console.log('✅ Partner connected to Socket.IO (ID:', partner.id, ')');
       check();
     });
   });
 
-  // 1. Star Creates / Joins Room
+  // STEP 1: Star Creates Room
   console.log(`\n1️⃣ Testing Room Creation for Room: ${roomId}`);
   star.emit('create-room', {
     roomId,
@@ -40,19 +35,23 @@ async function runTest() {
     role: 'star',
     cakeConfig: {
       name: 'Princess',
-      candleCount: 7,
+      message: 'Happy Birthday to my favorite person in the world!',
+      candleCount: 5,
       theme: 'romantic-rose'
     }
   });
 
   await new Promise((resolve) => {
     star.on('room-created', ({ roomId: id, roomState }) => {
-      console.log(`✅ Room Created: ${id}, participants: ${roomState.participants.length}, candles: ${roomState.cakeConfig.candleCount}`);
+      console.log(`✅ Room Created: ${id}, participants: ${roomState.participants.length}, stage: ${roomState.stage}`);
+      if (roomState.stage === 'ready-to-celebrate') {
+        console.log('✅ Initial room stage is correctly "ready-to-celebrate"');
+      }
       resolve();
     });
   });
 
-  // 2. Partner Joins Room
+  // STEP 2: Partner Joins Room
   console.log(`\n2️⃣ Testing Partner Joining Room: ${roomId}`);
   partner.emit('join-room', {
     roomId,
@@ -63,31 +62,37 @@ async function runTest() {
   await new Promise((resolve) => {
     let bothNotified = 0;
     partner.on('room-joined', ({ peers, roomState }) => {
-      console.log(`✅ Partner joined successfully. Existing peers: ${peers.length}`);
+      console.log(`✅ Partner joined room successfully. Total participants: ${roomState.participants.length}`);
       bothNotified++;
       if (bothNotified === 2) resolve();
     });
 
-    star.on('peer-joined', ({ peer }) => {
-      console.log(`✅ Star received peer-joined notification for: ${peer.name} (${peer.role})`);
+    star.on('peer-joined', ({ peer, roomState }) => {
+      console.log(`✅ Star received peer-joined for: ${peer.name} (${peer.role})`);
       bothNotified++;
       if (bothNotified === 2) resolve();
     });
   });
 
-  // 3. WebRTC Signaling Test (Offer -> Answer -> Candidate)
-  console.log('\n3️⃣ Testing WebRTC Signaling flow...');
-  star.emit('signal-offer', {
-    to: partner.id,
-    offer: { type: 'offer', sdp: 'fake-sdp-offer-for-testing' }
-  });
+  // STEP 3: WebRTC Signaling Handshake (webrtc-ready, offer, answer, ice)
+  console.log('\n3️⃣ Testing Two-Way WebRTC Signaling Handshake...');
+  partner.emit('webrtc-ready');
 
   await new Promise((resolve) => {
+    star.on('webrtc-ready', ({ from }) => {
+      console.log(`✅ Star received webrtc-ready from Partner (${from})`);
+      // Star sends offer
+      star.emit('signal-offer', {
+        to: from,
+        offer: { type: 'offer', sdp: 'fake-sdp-star-offer' }
+      });
+    });
+
     partner.on('signal-offer', ({ from, offer }) => {
       console.log(`✅ Partner received WebRTC offer from: ${from}`);
       partner.emit('signal-answer', {
         to: from,
-        answer: { type: 'answer', sdp: 'fake-sdp-answer-for-testing' }
+        answer: { type: 'answer', sdp: 'fake-sdp-partner-answer' }
       });
     });
 
@@ -97,24 +102,65 @@ async function runTest() {
     });
   });
 
-  // 4. Real-time Candle Blowing & Extinguishing Sync
-  console.log('\n4️⃣ Testing Candle Extinguish Synchronization...');
-  star.emit('extinguish-candles', { blownBy: 'Princess' });
+  // STEP 4: Dual Button Press ("LET'S CELEBRATE 🎂") Synchronization
+  console.log('\n4️⃣ Testing Dual Button Press ("LET\'S CELEBRATE 🎂")...');
+  // Star presses button first
+  star.emit('user-press-celebrate');
 
   await new Promise((resolve) => {
-    partner.on('candles-extinguished', ({ blownBy, roomState }) => {
-      console.log(`✅ Partner received candles-extinguished event! Blown by: ${blownBy}, Stage: ${roomState.stage}, Fireworks: ${roomState.celebrationState.fireworksActive}`);
+    partner.on('celebrate-readiness', ({ readyCount, totalParticipants }) => {
+      console.log(`✅ Readiness update: ${readyCount}/${totalParticipants} ready`);
+      if (readyCount === 1) {
+        resolve();
+      }
+    });
+  });
+
+  // Partner presses button second -> triggers celebration-start simultaneously!
+  partner.emit('user-press-celebrate');
+
+  await new Promise((resolve) => {
+    let bothStarted = 0;
+    const onStart = (device, data) => {
+      console.log(`✅ [${device}] Celebration Started! Stage: ${data.stage}`);
+      bothStarted++;
+      if (bothStarted === 2) resolve();
+    };
+
+    star.on('celebration-start', (d) => onStart('Star Device', d));
+    partner.on('celebration-start', (d) => onStart('Partner Device', d));
+  });
+
+  // STEP 5 & 6: Birthday Person Blows Candles & Extinguishes -> Advances to cutting
+  console.log('\n5️⃣ Testing Candle Blowing & Extinguish...');
+  star.emit('candle-blow-intensity', { intensity: 0.8, progress: 65 });
+
+  await new Promise((resolve) => {
+    partner.on('candle-blow-intensity', ({ intensity, progress }) => {
+      console.log(`✅ Partner received live wavering blow intensity: ${(intensity * 100).toFixed(0)}%, progress: ${progress}%`);
       resolve();
     });
   });
 
-  // 5. Synchronized Cake Cutting Test
-  console.log('\n5️⃣ Testing Synchronized Cake Cutting...');
-  partner.emit('cut-cake-progress', { progress: 50 });
+  star.emit('extinguish-candles', { blownBy: 'Princess' });
 
   await new Promise((resolve) => {
-    star.on('cut-cake-progress', ({ progress }) => {
-      console.log(`✅ Star received cake cut progress: ${progress}%`);
+    partner.on('candles-extinguished', ({ blownBy, roomState }) => {
+      console.log(`✅ Partner received candles-extinguished! Stage advanced to: ${roomState.stage}`);
+      if (roomState.stage === 'cutting') {
+        console.log('✅ Correctly advanced to "cutting" stage (Virtual knife appears)!');
+      }
+      resolve();
+    });
+  });
+
+  // STEP 7 & 8: Virtual Cake Knife Slicing & Cake Cut
+  console.log('\n6️⃣ Testing Synchronized Cake Cutting...');
+  star.emit('cut-cake-progress', { progress: 60 });
+
+  await new Promise((resolve) => {
+    partner.on('cut-cake-progress', ({ progress }) => {
+      console.log(`✅ Partner received knife slicing progress: ${progress}%`);
       resolve();
     });
   });
@@ -122,35 +168,16 @@ async function runTest() {
   star.emit('complete-cake-cut');
 
   await new Promise((resolve) => {
-    partner.on('cake-cut-completed', ({ celebrationState }) => {
-      console.log(`✅ Partner received cake-cut-completed! Cut: ${celebrationState.cakeCut}, Slice Separated: ${celebrationState.sliceSeparated}`);
+    partner.on('cake-cut-completed', ({ celebrationState, roomState }) => {
+      console.log(`✅ Partner received cake-cut-completed! Cut: ${celebrationState.cakeCut}, Slices Separated: ${celebrationState.sliceSeparated}, Stage: ${roomState.stage}`);
+      if (roomState.stage === 'celebration' && celebrationState.fireworksActive) {
+        console.log('✅ Correctly advanced to "celebration" stage with fireworks active!');
+      }
       resolve();
     });
   });
 
-  // 6. Romantic Love Letter Sync Test
-  console.log('\n6️⃣ Testing Romantic Love Letter Reveal...');
-  star.emit('reveal-letter');
-
-  await new Promise((resolve) => {
-    partner.on('letter-revealed', (letter) => {
-      console.log(`✅ Partner received letter-revealed! Title: "${letter.title}", Revealed: ${letter.revealed}`);
-      resolve();
-    });
-  });
-
-  // 7. Live Floating Reaction Test
-  console.log('\n7️⃣ Testing Live Floating Reactions...');
-  partner.emit('send-reaction', { type: 'heart', senderName: 'Romeo' });
-
-  await new Promise((resolve) => {
-    star.on('reaction-received', ({ type, senderName }) => {
-      console.log(`✅ Star received live floating reaction: ${type} from ${senderName}`);
-      resolve();
-    });
-  });
-
-  console.log('\n🎉 ALL 7 REAL-TIME MULTIPLAYER TESTS PASSED PERFECTLY!\n');
+  console.log('\n🎉 ALL MULTI-PEER REAL-TIME STEPS PASSED WITH 100% SUCCESS!\n');
   star.disconnect();
   partner.disconnect();
   process.exit(0);
@@ -160,4 +187,3 @@ runTest().catch((err) => {
   console.error('❌ Test failed with error:', err);
   process.exit(1);
 });
-

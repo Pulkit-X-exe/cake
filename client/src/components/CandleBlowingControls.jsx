@@ -19,7 +19,7 @@ export default function CandleBlowingControls({
   const detectorRef = useRef(null);
 
   useEffect(() => {
-    if (!candlesLit) {
+    if (!candlesLit || !isBirthdayStar) {
       if (detectorRef.current) {
         detectorRef.current.stop();
         detectorRef.current = null;
@@ -28,7 +28,7 @@ export default function CandleBlowingControls({
       return;
     }
 
-    // Initialize BlowDetector
+    // Initialize BlowDetector ONLY for Birthday Star
     const detector = new BlowDetector({
       sensitivity,
       onBlow: (intensity, progress) => {
@@ -52,7 +52,7 @@ export default function CandleBlowingControls({
         onExtinguishCandles();
 
         if (socket && roomId) {
-          socket.emit('extinguish-candles', { blownBy: isBirthdayStar ? 'Birthday Star' : 'Partner' });
+          socket.emit('extinguish-candles', { blownBy: 'Birthday Star' });
         }
       }
     });
@@ -68,7 +68,7 @@ export default function CandleBlowingControls({
         detectorRef.current = null;
       }
     };
-  }, [candlesLit, sensitivity]);
+  }, [candlesLit, sensitivity, isBirthdayStar]);
 
   // Manual fallback button
   const handleManualBlow = () => {
@@ -84,7 +84,7 @@ export default function CandleBlowingControls({
   if (!candlesLit) return null;
 
   return (
-    <div className="relative z-30 max-w-md mx-auto w-full px-4 py-3 sm:py-4 rounded-3xl bg-[#1c0828]/90 border border-amber-400/40 shadow-2xl backdrop-blur-2xl text-center">
+    <div className="relative z-30 max-w-md mx-auto w-full px-4 py-3 sm:py-4 rounded-3xl bg-[#1c0828]/95 border-2 border-amber-400/40 shadow-2xl backdrop-blur-2xl text-center select-none animate-fadeIn">
       {/* Make a Wish Title */}
       <div className="flex items-center justify-center gap-2 mb-1">
         <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
@@ -97,11 +97,11 @@ export default function CandleBlowingControls({
       <p className="text-xs sm:text-sm text-pink-200/90 font-medium">
         {isBirthdayStar
           ? 'Close your eyes, make your silent wish, then blow into your microphone!'
-          : 'Cheer on the Birthday Star as they blow out the candles!'}
+          : 'Cheer on the Birthday Star as they make a wish and blow out the candles!'}
       </p>
 
       {/* Real-time Blow Progress Bar */}
-      <div className="mt-3 relative w-full h-3 rounded-full bg-black/60 border border-pink-500/30 overflow-hidden">
+      <div className="mt-3 relative w-full h-3 rounded-full bg-black/60 border border-pink-500/30 overflow-hidden shadow-inner">
         <div
           className={`h-full transition-all duration-150 rounded-full ${
             isBlowing
@@ -112,64 +112,72 @@ export default function CandleBlowingControls({
         />
       </div>
 
-      <div className="mt-1 flex items-center justify-between text-[11px] text-pink-300/70 font-medium">
-        <span className="flex items-center gap-1">
-          <Mic className={`w-3 h-3 ${micActive ? 'text-emerald-400' : 'text-rose-400'}`} />
-          <span>{micActive ? 'Mic Active' : 'Mic Off'}</span>
-        </span>
+      {isBirthdayStar ? (
+        <>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-pink-300/80 font-medium">
+            <span className="flex items-center gap-1">
+              <Mic className={`w-3 h-3 ${micActive ? 'text-emerald-400 animate-pulse' : 'text-rose-400'}`} />
+              <span>{micActive ? 'Mic Blow Active' : 'Mic Off'}</span>
+            </span>
 
-        <span>{isBlowing ? '💨 Blowing detected!' : 'Waiting for breath...'}</span>
+            <span>{isBlowing ? '💨 Blowing detected!' : 'Waiting for your breath...'}</span>
 
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className="flex items-center gap-1 hover:text-white transition-colors"
-        >
-          <Sliders className="w-3 h-3" />
-          <span>Sensitivity</span>
-        </button>
-      </div>
-
-      {/* Sensitivity Slider Drawer */}
-      {showSettings && (
-        <div className="mt-2 p-2.5 rounded-xl bg-black/40 border border-pink-500/20 text-left text-xs">
-          <div className="flex justify-between text-[11px] text-pink-200 mb-1">
-            <span>Mic Blow Sensitivity</span>
-            <span className="font-mono text-amber-300">{sensitivity.toFixed(1)}x</span>
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+            >
+              <Sliders className="w-3 h-3" />
+              <span>Sensitivity</span>
+            </button>
           </div>
-          <input
-            type="range"
-            min="0.5"
-            max="2.5"
-            step="0.1"
-            value={sensitivity}
-            onChange={e => {
-              const val = parseFloat(e.target.value);
-              setSensitivity(val);
-              if (detectorRef.current) {
-                detectorRef.current.setSensitivity(val);
-              }
-            }}
-            className="w-full accent-amber-400"
-          />
-          <div className="flex justify-between text-[10px] text-pink-300/50 mt-0.5">
-            <span>Gentle Breath</span>
-            <span>Normal</span>
-            <span>High Energy</span>
+
+          {/* Sensitivity Slider Drawer */}
+          {showSettings && (
+            <div className="mt-2 p-2.5 rounded-xl bg-black/50 border border-pink-500/30 text-left text-xs animate-fadeIn">
+              <div className="flex justify-between text-[11px] text-pink-200 mb-1">
+                <span>Microphone Blow Sensitivity</span>
+                <span className="font-mono text-amber-300 font-bold">{sensitivity.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.5"
+                step="0.1"
+                value={sensitivity}
+                onChange={e => {
+                  const val = parseFloat(e.target.value);
+                  setSensitivity(val);
+                  if (detectorRef.current) {
+                    detectorRef.current.setSensitivity(val);
+                  }
+                }}
+                className="w-full accent-amber-400 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-pink-300/50 mt-0.5">
+                <span>Gentle Breath</span>
+                <span>Normal</span>
+                <span>Strong Wind</span>
+              </div>
+            </div>
+          )}
+
+          {/* Manual Backup Blow Button */}
+          <div className="mt-3 flex items-center justify-center gap-2">
+            <button
+              onClick={handleManualBlow}
+              className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 via-rose-500 to-pink-600 hover:from-amber-400 hover:via-rose-400 hover:to-pink-500 text-white font-bold text-xs sm:text-sm shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/50 cursor-pointer"
+            >
+              <Wind className="w-4 h-4 text-amber-200" />
+              <span>BLOW CANDLES 🕯️</span>
+            </button>
           </div>
+        </>
+      ) : (
+        <div className="mt-3 py-2 px-3 rounded-xl bg-white/5 border border-pink-500/20 text-xs text-pink-200/80 flex items-center justify-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
+          <span>The Birthday Star is preparing to blow out the candles!</span>
         </div>
       )}
-
-      {/* Manual Backup Blow Button */}
-      <div className="mt-3 flex items-center justify-center gap-2">
-        <button
-          onClick={handleManualBlow}
-          className="px-6 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 text-white font-bold text-xs sm:text-sm shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center gap-2 border border-amber-300/50"
-        >
-          <Wind className="w-4 h-4 text-amber-200" />
-          <span>Blow Candles 💨</span>
-        </button>
-      </div>
     </div>
   );
 }
-

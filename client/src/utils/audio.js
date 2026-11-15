@@ -144,6 +144,68 @@ class SoundEngine {
       { bass: 87.31,  notes: [174.61, 261.63, 349.23, 440.00, 523.25] }
     ];
 
+    // Traditional "Happy Birthday to You" Melody Notes & Harmonies (C Major)
+    const happyBirthdayMelody = [
+      // 1. "Happy Birthday to you"
+      { note: 392.00, dur: 0.75, bass: 130.81 }, // G4
+      { note: 392.00, dur: 0.25 },               // G4
+      { note: 440.00, dur: 1.0 },                // A4
+      { note: 392.00, dur: 1.0 },                // G4
+      { note: 523.25, dur: 1.0 },                // C5
+      { note: 493.88, dur: 2.0, bass: 98.00 },   // B4
+
+      // 2. "Happy Birthday to you"
+      { note: 392.00, dur: 0.75, bass: 98.00 },  // G4
+      { note: 392.00, dur: 0.25 },               // G4
+      { note: 440.00, dur: 1.0 },                // A4
+      { note: 392.00, dur: 1.0 },                // G4
+      { note: 587.33, dur: 1.0 },                // D5
+      { note: 523.25, dur: 2.0, bass: 130.81 }, // C5
+
+      // 3. "Happy Birthday dear (name)"
+      { note: 392.00, dur: 0.75, bass: 130.81 }, // G4
+      { note: 392.00, dur: 0.25 },               // G4
+      { note: 783.99, dur: 1.0 },                // G5
+      { note: 659.25, dur: 1.0 },                // E5
+      { note: 523.25, dur: 1.0, bass: 87.31 },  // C5
+      { note: 493.88, dur: 1.0 },                // B4
+      { note: 440.00, dur: 2.0 },                // A4
+
+      // 4. "Happy Birthday to you"
+      { note: 698.46, dur: 0.75, bass: 87.31 },  // F5
+      { note: 698.46, dur: 0.25 },               // F5
+      { note: 659.25, dur: 1.0 },                // E5
+      { note: 523.25, dur: 1.0 },                // C5
+      { note: 587.33, dur: 1.0, bass: 98.00 },   // D5
+      { note: 523.25, dur: 2.5, bass: 130.81 }  // C5
+    ];
+
+    if (this.musicMode === 'birthday') {
+      let stepIdx = 0;
+      const beatMs = 500; // Tempo
+
+      const playNextBirthdayNote = () => {
+        if (!this.isPlayingMusic || !this.ctx || this.isMuted || this.musicMode !== 'birthday') return;
+
+        const item = happyBirthdayMelody[stepIdx];
+        const now = this.ctx.currentTime;
+        const noteDuration = item.dur * (beatMs / 1000);
+
+        if (item.bass) {
+          this.playPad(item.bass, now, Math.max(1.8, noteDuration * 1.5));
+        }
+
+        this.playPluckNote(item.note, now, noteDuration * 1.4, 0.38);
+
+        stepIdx = (stepIdx + 1) % happyBirthdayMelody.length;
+        const nextDelay = item.dur * beatMs;
+        this.musicInterval = setTimeout(playNextBirthdayNote, nextDelay);
+      };
+
+      playNextBirthdayNote();
+      return;
+    }
+
     let chordIndex = 0;
     let noteIndex = 0;
     const tempo = this.musicMode === 'celebration' ? 240 : 420; // ms per beat

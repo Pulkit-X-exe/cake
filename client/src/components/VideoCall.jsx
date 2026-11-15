@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Mic,
   MicOff,
@@ -20,7 +20,9 @@ const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
   ]
 };
 
@@ -36,6 +38,7 @@ export default function VideoCall({
   const remoteVideoRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(new MediaStream());
   const iceCandidatesQueueRef = useRef([]);
   const makingOfferRef = useRef(false);
   const targetPeerIdRef = useRef(null);
@@ -51,14 +54,34 @@ export default function VideoCall({
   const [linkCopied, setLinkCopied] = useState(false);
 
   // Hat customization
-  const [hatYOffset, setHatYOffset] = useState(0.38);
-  const [hatSizeScale, setHatSizeScale] = useState(0.82);
+  const [hatYOffset, setHatYOffset] = useState(0.22);
+  const [hatSizeScale, setHatSizeScale] = useState(0.88);
   const [showHatSettings, setShowHatSettings] = useState(false);
 
   const isLocalStar = currentUser?.role === 'star';
   const isPolite = !isLocalStar; // Star is impolite caller, partner is polite
 
-  // Identify remote participant
+  // Callback ref for remote video to guarantee stream attachment even across re-renders
+  const setRemoteVideo = useCallback((node) => {
+    remoteVideoRef.current = node;
+    if (node) {
+      if (remoteStreamRef.current && remoteStreamRef.current.getTracks().length > 0) {
+        node.srcObject = remoteStreamRef.current;
+        node.play().catch(() => {});
+      }
+    }
+  }, []);
+
+  // Callback ref for local video
+  const setLocalVideo = useCallback((node) => {
+    localVideoRef.current = node;
+    if (node && localStreamRef.current) {
+      node.srcObject = localStreamRef.current;
+      node.play().catch(() => {});
+    }
+  }, []);
+
+  // Identify remote participant from room participants
   useEffect(() => {
     const remote = participants.find(p => p.id !== socket?.id);
     if (remote) {
@@ -71,6 +94,93 @@ export default function VideoCall({
       targetPeerIdRef.current = null;
     }
   }, [participants, socket?.id]);
+
+  // Setup Peer Connection helper
+  const setupPeerConnection = useCallback((stream) => {
+    if (peerConnectionRef.current) {
+      try { peerConnectionRef.current.close(); } catch (e) {}
+    }
+
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    peerConnectionRef.current = pc;
+
+    // Add local tracks to RTCPeerConnection
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        try {
+          pc.addTrack(track, stream);
+        } catch (e) {
+          console.warn('[WebRTC] addTrack error:', e);
+        }
+      });
+    }
+
+    // Remote Track handler
+    pc.ontrack = (event) => {
+      console.log('[WebRTC] Received remote track:', event.track.kind);
+      if (event.streams && event.streams[0]) {
+        remoteStreamRef.current = event.streams[0];
+      } else {
+        remoteStreamRef.current.addTrack(event.track);
+      }
+
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+        remoteVideoRef.current.play().catch(() => {});
+      }
+      setHasRemoteUser(true);
+      setConnectionStatus('connected');
+    };
+
+    // ICE Candidate generation
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socket && targetPeerIdRef.current) {
+        socket.emit('signal-ice', {
+          to: targetPeerIdRef.current,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('[WebRTC] Connection state:', pc.connectionState);
+      if (pc.connectionState === 'connected') {
+        setConnectionStatus('connected');
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        setConnectionStatus('disconnected');
+      } else if (pc.connectionState === 'connecting') {
+        setConnectionStatus('connecting');
+      }
+    };
+
+    return pc;
+  }, [socket]);
+
+  // Create and send offer
+  const sendOffer = useCallback(async (pc, targetId) => {
+    if (!pc || makingOfferRef.current) return;
+    try {
+      makingOfferRef.current = true;
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      if (pc.signalingState !== 'stable') return;
+      await pc.setLocalDescription(offer);
+
+      if (socket) {
+        socket.emit('signal-offer', {
+          to: targetId,
+          offer
+        });
+        console.log('[WebRTC] Sent Offer to', targetId);
+      }
+    } catch (e) {
+      console.error('[WebRTC] Create offer error:', e);
+    } finally {
+      makingOfferRef.current = false;
+    }
+  }, [socket]);
 
   // Initialize Media Stream & WebRTC
   useEffect(() => {
@@ -96,13 +206,24 @@ export default function VideoCall({
         localStreamRef.current = stream;
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
+          localVideoRef.current.play().catch(() => {});
         }
 
         if (onBlowMicStream) {
           onBlowMicStream(stream);
         }
 
-        setupPeerConnection(stream);
+        const pc = setupPeerConnection(stream);
+
+        // Notify room that we are ready for WebRTC
+        if (socket) {
+          socket.emit('webrtc-ready');
+        }
+
+        // If a remote peer is already in the room and we are the caller (Star or existing peer)
+        if (targetPeerIdRef.current && isLocalStar && pc) {
+          sendOffer(pc, targetPeerIdRef.current);
+        }
       } catch (err) {
         console.warn('[VideoCall] Media error:', err);
         setMediaError(
@@ -111,16 +232,21 @@ export default function VideoCall({
             : 'Camera could not be accessed. If another tab is using the camera, you can still participate!'
         );
 
-        // Fallback: try audio only or continue
+        // Fallback: try audio only
         try {
           const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
           if (!isCancelled) {
             localStreamRef.current = audioOnly;
             setIsVideoDisabled(true);
-            setupPeerConnection(audioOnly);
+            const pc = setupPeerConnection(audioOnly);
+            if (socket) socket.emit('webrtc-ready');
+            if (targetPeerIdRef.current && isLocalStar && pc) {
+              sendOffer(pc, targetPeerIdRef.current);
+            }
           }
         } catch (e) {
-          setupPeerConnection(null);
+          const pc = setupPeerConnection(null);
+          if (socket) socket.emit('webrtc-ready');
         }
       }
     }
@@ -136,99 +262,13 @@ export default function VideoCall({
         peerConnectionRef.current.close();
       }
     };
-  }, [facingMode]);
-
-  function setupPeerConnection(stream) {
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close();
-    }
-
-    const pc = new RTCPeerConnection(RTC_CONFIG);
-    peerConnectionRef.current = pc;
-
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
-    }
-
-    // Remote Track received
-    pc.ontrack = (event) => {
-      console.log('[WebRTC] Received remote track:', event.track.kind);
-      if (remoteVideoRef.current) {
-        if (event.streams && event.streams[0]) {
-          remoteVideoRef.current.srcObject = event.streams[0];
-        } else {
-          let curStream = remoteVideoRef.current.srcObject;
-          if (!curStream) {
-            curStream = new MediaStream();
-            remoteVideoRef.current.srcObject = curStream;
-          }
-          curStream.addTrack(event.track);
-        }
-        remoteVideoRef.current.play().catch(() => {});
-        setHasRemoteUser(true);
-        setConnectionStatus('connected');
-      }
-    };
-
-    // ICE Candidate generation
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socket && targetPeerIdRef.current) {
-        socket.emit('signal-ice', {
-          to: targetPeerIdRef.current,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] State:', pc.connectionState);
-      if (pc.connectionState === 'connected') {
-        setConnectionStatus('connected');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setConnectionStatus('disconnected');
-      } else if (pc.connectionState === 'connecting') {
-        setConnectionStatus('connecting');
-      }
-    };
-
-    // Existing peer starts the call
-    if (targetPeerIdRef.current && isLocalStar) {
-      sendOffer(pc, targetPeerIdRef.current);
-    }
-  }
-
-  async function sendOffer(pc, targetId) {
-    if (!pc || makingOfferRef.current) return;
-    try {
-      makingOfferRef.current = true;
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      });
-      if (pc.signalingState !== 'stable') return;
-      await pc.setLocalDescription(offer);
-
-      if (socket) {
-        socket.emit('signal-offer', {
-          to: targetId,
-          offer
-        });
-        console.log('[WebRTC] Sent Offer to', targetId);
-      }
-    } catch (e) {
-      console.error('[WebRTC] Create offer error:', e);
-    } finally {
-      makingOfferRef.current = false;
-    }
-  }
+  }, [facingMode, setupPeerConnection, sendOffer, socket, isLocalStar, onBlowMicStream]);
 
   // Socket Signaling Listeners
   useEffect(() => {
     if (!socket) return;
 
-    // Remote peer joined -> Host / Star sends offer
+    // Remote peer joined -> if we are Star, send offer
     const handlePeerJoined = ({ peer }) => {
       console.log('[Socket] Peer joined:', peer.id);
       targetPeerIdRef.current = peer.id;
@@ -238,8 +278,19 @@ export default function VideoCall({
       setConnectionStatus('connecting');
 
       const pc = peerConnectionRef.current;
-      if (pc) {
+      if (pc && isLocalStar) {
         sendOffer(pc, peer.id);
+      }
+    };
+
+    // Remote peer signaled webrtc-ready
+    const handleWebRtcReady = ({ from }) => {
+      console.log('[Socket] WebRTC Ready received from:', from);
+      targetPeerIdRef.current = from;
+      setHasRemoteUser(true);
+      const pc = peerConnectionRef.current;
+      if (pc && isLocalStar) {
+        sendOffer(pc, from);
       }
     };
 
@@ -325,12 +376,14 @@ export default function VideoCall({
       console.log('[Socket] Peer left:', peerName);
       setHasRemoteUser(false);
       setConnectionStatus('waiting');
+      remoteStreamRef.current = new MediaStream();
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = null;
       }
     };
 
     socket.on('peer-joined', handlePeerJoined);
+    socket.on('webrtc-ready', handleWebRtcReady);
     socket.on('signal-offer', handleSignalOffer);
     socket.on('signal-answer', handleSignalAnswer);
     socket.on('signal-ice', handleSignalIce);
@@ -338,12 +391,13 @@ export default function VideoCall({
 
     return () => {
       socket.off('peer-joined', handlePeerJoined);
+      socket.off('webrtc-ready', handleWebRtcReady);
       socket.off('signal-offer', handleSignalOffer);
       socket.off('signal-answer', handleSignalAnswer);
       socket.off('signal-ice', handleSignalIce);
       socket.off('peer-left', handlePeerLeft);
     };
-  }, [socket, isPolite]);
+  }, [socket, isPolite, isLocalStar, sendOffer]);
 
   const toggleAudio = () => {
     if (localStreamRef.current) {
@@ -382,8 +436,10 @@ export default function VideoCall({
     setTimeout(() => setLinkCopied(false), 2000);
   };
 
+  const isBothConnected = participants.length >= 2 || connectionStatus === 'connected';
+
   return (
-    <div className="relative w-full h-full flex flex-col p-2 sm:p-3 overflow-hidden">
+    <div className="relative w-full h-full flex flex-col p-2 sm:p-3 overflow-hidden select-none">
       {/* Permission Warning Banner if any */}
       {mediaError && (
         <div className="mb-2 z-40 bg-rose-950/90 border border-rose-500/50 rounded-xl p-2.5 text-xs text-rose-200 flex items-center justify-between shadow-lg backdrop-blur-md">
@@ -409,7 +465,7 @@ export default function VideoCall({
             // LOCAL USER IS THE BIRTHDAY STAR
             <div className="relative w-full h-full flex items-center justify-center">
               <video
-                ref={localVideoRef}
+                ref={setLocalVideo}
                 autoPlay
                 playsInline
                 muted
@@ -449,16 +505,16 @@ export default function VideoCall({
             </div>
           ) : (
             // REMOTE USER IS THE BIRTHDAY STAR
-            hasRemoteUser ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <video
+                ref={setRemoteVideo}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${hasRemoteUser ? 'block' : 'hidden'}`}
+              />
 
-                {/* Birthday Hat Overlay on Remote Star */}
+              {/* Birthday Hat Overlay on Remote Star */}
+              {hasRemoteUser && (
                 <BirthdayHatOverlay
                   videoRef={remoteVideoRef}
                   isBirthdayPerson={true}
@@ -467,30 +523,34 @@ export default function VideoCall({
                   yOffsetRatio={hatYOffset}
                   sizeScale={hatSizeScale}
                 />
+              )}
 
-                {/* Badge */}
+              {/* Remote Star Badge */}
+              {hasRemoteUser && (
                 <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 border border-amber-400/60 text-amber-300 text-[11px] font-semibold backdrop-blur-md shadow-md">
                   <Crown className="w-3.5 h-3.5 text-amber-400" />
                   <span>{remoteUserName} (Birthday Star 👑)</span>
                 </div>
-              </div>
-            ) : (
-              // Remote Star Not Joined Yet
-              <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
-                <Crown className="w-10 h-10 text-amber-400/80 animate-bounce mb-2" />
-                <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">Waiting for Birthday Star 👑</h4>
-                <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
-                  Share the celebration link with the birthday star!
-                </p>
-                <button
-                  onClick={handleCopyLink}
-                  className="mt-3 px-3 py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium border border-amber-400/40 transition-colors flex items-center gap-1.5"
-                >
-                  {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
-                  <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
-                </button>
-              </div>
-            )
+              )}
+
+              {/* Remote Star Not Joined Yet */}
+              {!hasRemoteUser && (
+                <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
+                  <Crown className="w-10 h-10 text-amber-400/80 animate-bounce mb-2" />
+                  <h4 className="text-amber-200 font-semibold text-xs sm:text-sm">Waiting for Birthday Star 👑</h4>
+                  <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
+                    Share the celebration link with the birthday star!
+                  </p>
+                  <button
+                    onClick={handleCopyLink}
+                    className="mt-3 px-3 py-1.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-medium border border-amber-400/40 transition-colors flex items-center gap-1.5"
+                  >
+                    {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
+                    <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -500,7 +560,7 @@ export default function VideoCall({
             // LOCAL USER IS THE PARTNER
             <div className="relative w-full h-full flex items-center justify-center">
               <video
-                ref={localVideoRef}
+                ref={setLocalVideo}
                 autoPlay
                 playsInline
                 muted
@@ -527,38 +587,40 @@ export default function VideoCall({
             </div>
           ) : (
             // REMOTE USER IS THE PARTNER
-            hasRemoteUser ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
+            <div className="relative w-full h-full flex items-center justify-center">
+              <video
+                ref={setRemoteVideo}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${hasRemoteUser ? 'block' : 'hidden'}`}
+              />
 
-                {/* Badge */}
+              {/* Remote Partner Badge */}
+              {hasRemoteUser && (
                 <div className="absolute top-2.5 left-2.5 z-30 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 border border-pink-400/60 text-pink-200 text-[11px] font-semibold backdrop-blur-md shadow-md">
                   <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
                   <span>{remoteUserName} (Celebrating 💖)</span>
                 </div>
-              </div>
-            ) : (
-              // Partner has not joined yet
-              <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
-                <Sparkles className="w-10 h-10 text-pink-400 animate-pulse mb-2" />
-                <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">Waiting for Partner ❤️</h4>
-                <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
-                  Share this invitation link so your partner can sit with you!
-                </p>
-                <button
-                  onClick={handleCopyLink}
-                  className="mt-3 px-3 py-1.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-medium border border-pink-400/40 transition-colors flex items-center gap-1.5"
-                >
-                  {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
-                  <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
-                </button>
-              </div>
-            )
+              )}
+
+              {/* Partner has not joined yet */}
+              {!hasRemoteUser && (
+                <div className="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-b from-[#250938] to-[#12031c]">
+                  <Sparkles className="w-10 h-10 text-pink-400 animate-pulse mb-2" />
+                  <h4 className="text-pink-200 font-semibold text-xs sm:text-sm">Waiting for Partner ❤️</h4>
+                  <p className="text-[11px] text-pink-300/70 mt-1 max-w-[200px]">
+                    Share this invitation link so your partner can sit with you!
+                  </p>
+                  <button
+                    onClick={handleCopyLink}
+                    className="mt-3 px-3 py-1.5 rounded-full bg-pink-500/20 hover:bg-pink-500/30 text-pink-200 text-xs font-medium border border-pink-400/40 transition-colors flex items-center gap-1.5"
+                  >
+                    {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-amber-300" />}
+                    <span>{linkCopied ? 'Link Copied!' : 'Copy Invite Link'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -566,10 +628,10 @@ export default function VideoCall({
       {/* Connection Quality Pill */}
       <div className="mt-2 flex items-center justify-between text-[11px] px-1 text-pink-300/70">
         <div className="flex items-center gap-1.5">
-          {connectionStatus === 'connected' ? (
+          {isBothConnected ? (
             <>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-300 font-medium">Both Connected Live (P2P)</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-300 font-medium">Both Participants Connected ❤️</span>
             </>
           ) : hasRemoteUser ? (
             <>
@@ -644,8 +706,8 @@ export default function VideoCall({
             </span>
             <button
               onClick={() => {
-                setHatYOffset(0.38);
-                setHatSizeScale(0.82);
+                setHatYOffset(0.22);
+                setHatSizeScale(0.88);
               }}
               className="text-[10px] text-pink-300/70 hover:text-white"
             >
@@ -661,8 +723,8 @@ export default function VideoCall({
               </div>
               <input
                 type="range"
-                min="0.15"
-                max="0.65"
+                min="0.10"
+                max="0.50"
                 step="0.02"
                 value={hatYOffset}
                 onChange={e => setHatYOffset(parseFloat(e.target.value))}
