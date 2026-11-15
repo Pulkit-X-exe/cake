@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import BirthdayHatOverlay from './BirthdayHatOverlay';
 
-// High-availability default STUN + multi-transport TURN servers (fallback)
+// High-availability default STUN + multi-transport TURN servers (fallback & primary)
 const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -25,12 +25,32 @@ const DEFAULT_ICE_SERVERS = [
   { urls: 'stun:stun4.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
   { urls: 'stun:relay.metered.ca:80' },
-  { urls: 'stun:stun.relay.metered.ca:80' }
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  {
+    urls: [
+      'turn:relay.metered.ca:80',
+      'turn:relay.metered.ca:80?transport=tcp',
+      'turn:relay.metered.ca:443',
+      'turn:relay.metered.ca:443?transport=tcp',
+      'turns:relay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  },
+  {
+    urls: [
+      'turn:staticauth.openrelay.metered.ca:80',
+      'turn:staticauth.openrelay.metered.ca:80?transport=tcp',
+      'turn:staticauth.openrelay.metered.ca:443',
+      'turn:staticauth.openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  }
 ];
 
 const DEFAULT_RTC_CONFIG = {
   iceServers: DEFAULT_ICE_SERVERS,
-  iceCandidatePoolSize: 10,
   iceTransportPolicy: 'all',
   bundlePolicy: 'max-bundle'
 };
@@ -97,6 +117,7 @@ function VideoCallComponent({
       if (remoteStreamRef.current && remoteStreamRef.current.getTracks().length > 0) {
         node.srcObject = remoteStreamRef.current;
         playVideoSafely(node);
+        setIsRemoteLive(true);
       }
     }
   }, [playVideoSafely]);
@@ -346,6 +367,14 @@ function VideoCallComponent({
         remoteBlurVideoRef.current.srcObject = incomingStream;
         remoteBlurVideoRef.current.play().catch(() => {});
       }
+
+      event.track.onunmute = () => {
+        console.log('[WebRTC] Remote track unmuted:', event.track.kind);
+        setIsRemoteLive(true);
+        if (remoteVideoRef.current) {
+          playVideoSafely(remoteVideoRef.current);
+        }
+      };
 
       setIsRemoteLive(true);
       setHasRemoteUser(true);
@@ -839,8 +868,8 @@ function VideoCallComponent({
 
   return (
     <div className="relative w-full h-full flex flex-col p-2 sm:p-3 overflow-hidden select-none">
-      {/* Permission Warning Banner if any */}
-      {mediaError && (
+      {/* Permission Warning Banner if any (only displayed if local video is actually unavailable) */}
+      {mediaError && isVideoDisabled && (
         <div className="mb-2 z-40 bg-rose-950/90 border border-rose-500/50 rounded-xl p-2.5 text-xs text-rose-200 flex items-center justify-between shadow-lg backdrop-blur-md">
           <div className="flex items-center gap-1.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />

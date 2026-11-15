@@ -109,14 +109,28 @@ Always and forever with you ❤️`,
     });
 
     // Room created / joined responses
-    s.on('room-created', ({ roomId: id, roomState }) => {
+    s.on('room-created', ({ roomId: id, roomState, yourRole }) => {
       setRoomId(id);
+      if (yourRole) {
+        setCurrentUser(prev => ({
+          ...(prev || {}),
+          role: yourRole,
+          isStar: yourRole === 'star'
+        }));
+      }
       applyRoomState(roomState);
       setAppStage('celebration');
     });
 
-    s.on('room-joined', ({ roomId: id, roomState }) => {
+    s.on('room-joined', ({ roomId: id, roomState, yourRole }) => {
       setRoomId(id);
+      if (yourRole) {
+        setCurrentUser(prev => ({
+          ...(prev || {}),
+          role: yourRole,
+          isStar: yourRole === 'star'
+        }));
+      }
       applyRoomState(roomState);
       setAppStage('celebration');
     });
@@ -277,7 +291,20 @@ Always and forever with you ❤️`,
 
   function applyRoomState(state) {
     if (!state) return;
-    if (state.participants) setParticipants(state.participants);
+    if (state.participants) {
+      setParticipants(state.participants);
+      if (socket) {
+        const me = state.participants.find(p => p.id === socket.id);
+        if (me && me.role) {
+          setCurrentUser(prev => ({
+            ...(prev || {}),
+            name: me.name || prev?.name,
+            role: me.role,
+            isStar: me.role === 'star'
+          }));
+        }
+      }
+    }
     if (state.cakeConfig) setCakeConfig(state.cakeConfig);
     if (state.stage) setCelebrationStage(state.stage);
     if (state.celebrationState) {

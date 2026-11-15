@@ -29,7 +29,28 @@ function getDefaultIceServers() {
     { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:stun.cloudflare.com:3478' },
     { urls: 'stun:relay.metered.ca:80' },
-    { urls: 'stun:stun.relay.metered.ca:80' }
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    {
+      urls: [
+        'turn:relay.metered.ca:80',
+        'turn:relay.metered.ca:80?transport=tcp',
+        'turn:relay.metered.ca:443',
+        'turn:relay.metered.ca:443?transport=tcp',
+        'turns:relay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: [
+        'turn:staticauth.openrelay.metered.ca:80',
+        'turn:staticauth.openrelay.metered.ca:80?transport=tcp',
+        'turn:staticauth.openrelay.metered.ca:443',
+        'turn:staticauth.openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ];
 }
 
@@ -206,11 +227,12 @@ io.on('connection', (socket) => {
 
     rooms.set(id, room);
 
+    const creatorRole = role || 'star';
     const participant = {
       id: socket.id,
       name: userName || 'Host',
-      role: role || 'star', // 'star' is the birthday person, 'partner' is celebrating with them
-      isStar: role === 'star',
+      role: creatorRole, // 'star' is the birthday person, 'partner' is celebrating with them
+      isStar: creatorRole === 'star',
       isMuted: false,
       isVideoOff: false,
       joinedAt: Date.now()
@@ -224,7 +246,7 @@ io.on('connection', (socket) => {
     }
 
     socket.join(id);
-    socket.emit('room-created', { roomId: id, roomState: room });
+    socket.emit('room-created', { roomId: id, roomState: room, yourRole: creatorRole });
     console.log(`[Room Created] ID: ${id} by ${participant.name} with custom letter body: ${room.letter.body.slice(0, 30)}...`);
   });
 
@@ -274,11 +296,20 @@ io.on('connection', (socket) => {
 
     const otherParticipants = room.participants.filter(p => p.id !== socket.id);
     
-    // Auto-assign role if needed (if one is star, the other is partner)
+    // Strictly enforce complementary roles for a 2-person celebration: exactly 1 Birthday Star and 1 Partner
     let assignedRole = role;
-    if (!assignedRole) {
+    if (otherParticipants.length > 0) {
       const hasStar = otherParticipants.some(p => p.role === 'star');
-      assignedRole = hasStar ? 'partner' : 'star';
+      const hasPartner = otherParticipants.some(p => p.role === 'partner');
+      if (hasStar && !hasPartner) {
+        assignedRole = 'partner';
+      } else if (hasPartner && !hasStar) {
+        assignedRole = 'star';
+      } else if (!assignedRole) {
+        assignedRole = hasStar ? 'partner' : 'star';
+      }
+    } else {
+      assignedRole = role || 'star';
     }
 
     const participant = {
@@ -300,11 +331,12 @@ io.on('connection', (socket) => {
 
     socket.join(id);
 
-    // Send full current room state to joining participant
+    // Send full current room state to joining participant with confirmed complementary role
     socket.emit('room-joined', {
       roomId: id,
       roomState: room,
-      peers: otherParticipants
+      peers: otherParticipants,
+      yourRole: assignedRole
     });
 
     // Notify other peers in room
@@ -345,6 +377,7 @@ io.on('connection', (socket) => {
   // WebRTC Signaling: Offer
   socket.on('signal-offer', ({ to, roomId, offer }) => {
     const targetRoom = roomId || currentRoomId;
+    console.log(`[Signaling Offer] from ${socket.id} -> to ${to || targetRoom} (offer valid: ${!!offer})`);
     if (to) {
       io.to(to).emit('signal-offer', { from: socket.id, offer });
     } else if (targetRoom) {
@@ -355,6 +388,7 @@ io.on('connection', (socket) => {
   // WebRTC Signaling: Answer
   socket.on('signal-answer', ({ to, roomId, answer }) => {
     const targetRoom = roomId || currentRoomId;
+    console.log(`[Signaling Answer] from ${socket.id} -> to ${to || targetRoom} (answer valid: ${!!answer})`);
     if (to) {
       io.to(to).emit('signal-answer', { from: socket.id, answer });
     } else if (targetRoom) {
@@ -365,6 +399,7 @@ io.on('connection', (socket) => {
   // WebRTC Signaling: ICE Candidate
   socket.on('signal-ice', ({ to, roomId, candidate }) => {
     const targetRoom = roomId || currentRoomId;
+    console.log(`[Signaling ICE] from ${socket.id} -> to ${to || targetRoom} (type: ${candidate?.type || 'null'})`);
     if (to) {
       io.to(to).emit('signal-ice', { from: socket.id, candidate });
     } else if (targetRoom) {
