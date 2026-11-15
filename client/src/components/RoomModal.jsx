@@ -34,7 +34,7 @@ export default function RoomModal({
 
   // Cake Customization State
   const [cakeName, setCakeName] = useState('My Love');
-  const [cakeMessage, setCakeMessage] = useState(
+  const [personalMessage, setPersonalMessage] = useState(
     'Happy Birthday, my favorite person in the world!\n\nEven across the distance between us, my heart is right beside yours tonight. Watching you smile as you blow out these candles makes the whole world feel warmer.\n\nMay this year bring you infinite joy, gentle mornings, and all the love you give so effortlessly to the world.\n\nAlways and forever with you ❤️'
   );
   const [selectedTheme, setSelectedTheme] = useState('romantic-rose');
@@ -116,9 +116,10 @@ export default function RoomModal({
       roomId: roomId.trim().toUpperCase(),
       userName: userName.trim() || (role === 'star' ? 'Birthday Star' : 'Partner'),
       role,
+      personalMessage: personalMessage.trim(),
       cakeConfig: {
         name: cakeName.trim() || 'My Love',
-        message: cakeMessage.trim() || 'Happy Birthday!',
+        message: 'Happy Birthday!',
         theme: selectedTheme,
         cakeColor: themeObj.color,
         accentColor: themeObj.accent,
@@ -285,7 +286,7 @@ export default function RoomModal({
                 </div>
               </div>
 
-              {/* Personal Birthday Message / Keepsake Letter - Only for Celebrating Partner */}
+              {/* Personal Birthday Message / Keepsake Letter */}
               {role === 'partner' ? (
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -296,8 +297,8 @@ export default function RoomModal({
                   </div>
                   <textarea
                     rows={4}
-                    value={cakeMessage}
-                    onChange={e => setCakeMessage(e.target.value)}
+                    value={personalMessage}
+                    onChange={e => setPersonalMessage(e.target.value)}
                     placeholder="Write your special midnight birthday message here..."
                     className="w-full px-3 py-2 bg-black/50 border border-pink-500/30 rounded-xl text-pink-100 text-xs focus:outline-none focus:ring-1 focus:ring-pink-400 placeholder-pink-400/40 leading-relaxed font-sans"
                   />
@@ -310,6 +311,13 @@ export default function RoomModal({
                     <p className="text-[10px] text-pink-300/70 leading-relaxed mt-0.5">
                       As the Birthday Star, your celebrating partner will write a private surprise keepsake letter for you. You'll get to open and read it after cutting the cake! ✨
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => setRole('partner')}
+                      className="mt-2 text-[10px] text-amber-300 hover:text-amber-200 underline font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      Surprising your partner? Switch to "Celebrating" to write your personal letter ➔
+                    </button>
                   </div>
                 </div>
               )}

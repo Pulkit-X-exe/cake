@@ -27,48 +27,59 @@ async function runTest() {
     });
   });
 
-  // STEP 1: Star Creates Room
-  console.log(`\n1️⃣ Testing Room Creation for Room: ${roomId}`);
-  star.emit('create-room', {
+  const customTestMessage = `Happy Birthday, my favourite person! ❤️
+
+Distance may keep us apart tonight, but my heart is always with you.
+
+I hope every candle you blow brings a beautiful wish into your life.
+
+I love you. Happy Birthday, my love! ❤️`;
+
+  // STEP 1: Partner Creates Room with Custom Personal Message
+  console.log(`\n1️⃣ Testing Room Creation with Custom Keepsake Letter for Room: ${roomId}`);
+  partner.emit('create-room', {
     roomId,
-    userName: 'Princess',
-    role: 'star',
+    userName: 'Romeo',
+    role: 'partner',
+    personalMessage: customTestMessage,
     cakeConfig: {
       name: 'Princess',
-      message: 'Happy Birthday to my favorite person in the world!',
+      message: 'Happy Birthday!',
       candleCount: 5,
       theme: 'romantic-rose'
     }
   });
 
   await new Promise((resolve) => {
-    star.on('room-created', ({ roomId: id, roomState }) => {
+    partner.on('room-created', ({ roomId: id, roomState }) => {
       console.log(`✅ Room Created: ${id}, participants: ${roomState.participants.length}, stage: ${roomState.stage}`);
-      if (roomState.stage === 'ready-to-celebrate') {
-        console.log('✅ Initial room stage is correctly "ready-to-celebrate"');
+      if (roomState.letter && roomState.letter.body === customTestMessage) {
+        console.log('✅ Custom personal message properly saved in room.letter.body!');
+      } else {
+        console.error('❌ Failed to save custom message in room.letter:', roomState.letter);
       }
       resolve();
     });
   });
 
-  // STEP 2: Partner Joins Room
-  console.log(`\n2️⃣ Testing Partner Joining Room: ${roomId}`);
-  partner.emit('join-room', {
+  // STEP 2: Birthday Star Joins Room
+  console.log(`\n2️⃣ Testing Star Joining Room: ${roomId}`);
+  star.emit('join-room', {
     roomId,
-    userName: 'Romeo',
-    role: 'partner'
+    userName: 'Princess',
+    role: 'star'
   });
 
   await new Promise((resolve) => {
     let bothNotified = 0;
-    partner.on('room-joined', ({ peers, roomState }) => {
-      console.log(`✅ Partner joined room successfully. Total participants: ${roomState.participants.length}`);
+    star.on('room-joined', ({ peers, roomState }) => {
+      console.log(`✅ Star joined room successfully. Total participants: ${roomState.participants.length}`);
       bothNotified++;
       if (bothNotified === 2) resolve();
     });
 
-    star.on('peer-joined', ({ peer, roomState }) => {
-      console.log(`✅ Star received peer-joined for: ${peer.name} (${peer.role})`);
+    partner.on('peer-joined', ({ peer, roomState }) => {
+      console.log(`✅ Partner received peer-joined for: ${peer.name} (${peer.role})`);
       bothNotified++;
       if (bothNotified === 2) resolve();
     });
@@ -80,36 +91,42 @@ async function runTest() {
   partner.emit('webrtc-ready');
 
   await new Promise((resolve) => {
-    let callerReceived = false;
-    let calleeReceived = false;
-
-    star.on('start-webrtc-call', ({ to }) => {
-      console.log(`✅ Star designated as CALLER to target: ${to}`);
-      callerReceived = true;
-      // Caller sends offer
-      star.emit('signal-offer', {
+    const handleCaller = (socket, name) => ({ to }) => {
+      console.log(`✅ ${name} designated as CALLER to target: ${to}`);
+      socket.emit('signal-offer', {
         to,
-        offer: { type: 'offer', sdp: 'fake-sdp-star-offer' }
+        offer: { type: 'offer', sdp: 'fake-sdp-offer' }
       });
-    });
+    };
 
-    partner.on('expect-webrtc-call', ({ from }) => {
-      console.log(`✅ Partner designated as CALLEE from source: ${from}`);
-      calleeReceived = true;
-    });
+    const handleCallee = (name) => ({ from }) => {
+      console.log(`✅ ${name} designated as CALLEE from source: ${from}`);
+    };
 
-    partner.on('signal-offer', ({ from, offer }) => {
-      console.log(`✅ Partner received WebRTC offer from: ${from}`);
-      partner.emit('signal-answer', {
+    const handleOffer = (socket, name) => ({ from, offer }) => {
+      console.log(`✅ ${name} received WebRTC offer from: ${from}`);
+      socket.emit('signal-answer', {
         to: from,
-        answer: { type: 'answer', sdp: 'fake-sdp-partner-answer' }
+        answer: { type: 'answer', sdp: 'fake-sdp-answer' }
       });
-    });
+    };
 
-    star.on('signal-answer', ({ from, answer }) => {
-      console.log(`✅ Star received WebRTC answer from: ${from}`);
+    const handleAnswer = (name) => ({ from, answer }) => {
+      console.log(`✅ ${name} received WebRTC answer from: ${from}`);
       resolve();
-    });
+    };
+
+    star.on('start-webrtc-call', handleCaller(star, 'Star'));
+    partner.on('start-webrtc-call', handleCaller(partner, 'Partner'));
+
+    star.on('expect-webrtc-call', handleCallee('Star'));
+    partner.on('expect-webrtc-call', handleCallee('Partner'));
+
+    star.on('signal-offer', handleOffer(star, 'Star'));
+    partner.on('signal-offer', handleOffer(partner, 'Partner'));
+
+    star.on('signal-answer', handleAnswer('Star'));
+    partner.on('signal-answer', handleAnswer('Partner'));
   });
 
   // STEP 4: Big Button "🎂 START MY BDAY ❤️" (Single press starts for both!)
@@ -181,7 +198,13 @@ async function runTest() {
   await new Promise((resolve) => {
     let bothOpened = 0;
     const onOpen = (device, { message, name, letter, roomState }) => {
-      console.log(`✅ [${device}] Received birthday:open-message! Recipient: ${name}, Message: "${message}"`);
+      console.log(`✅ [${device}] Received birthday:open-message! Recipient: ${name}`);
+      console.log(`📜 Message preview: "${(letter?.body || message).substring(0, 40)}..."`);
+      if (letter?.body === customTestMessage || message === customTestMessage) {
+        console.log(`✅ [${device}] EXACT custom personal message verified on device!`);
+      } else {
+        console.error(`❌ [${device}] Custom message mismatch! Expected exact test message, got:`, letter?.body || message);
+      }
       if (roomState.stage === 'message' && !roomState.celebrationState.fireworksActive) {
         console.log(`✅ [${device}] Room stage correctly set to "message" and fireworks dismissed.`);
       }

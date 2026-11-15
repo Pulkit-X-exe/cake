@@ -35,11 +35,32 @@ Always and forever with you ❤️`,
   wishes = [],
   isHost = true
 }) {
+  const defaultBody = `Happy Birthday, my favorite soul in the universe!
+
+Even across the distance and miles between us, my heart is right beside yours tonight.
+Watching you smile as you blow out these candles makes the whole world feel warmer.
+
+May this new year bring you infinite joy, gentle mornings, soaring dreams, and all the love you give so effortlessly to the world.
+
+Always and forever with you ❤️`;
+
+  const letterBody = (letter && letter.body && letter.body.trim()) ? letter.body : defaultBody;
+  const recipientName = (letter && letter.recipientName && letter.recipientName.trim()) ? letter.recipientName : 'Birthday Star';
+  const senderName = (letter && letter.senderName && letter.senderName.trim()) ? letter.senderName : 'Forever Yours';
+  const letterTitle = (letter && letter.title && letter.title.trim()) ? letter.title : 'Under the Midnight Stars';
+
   const [isEditing, setIsEditing] = useState(false);
-  const [editBody, setEditBody] = useState(letter.body);
-  const [editTitle, setEditTitle] = useState(letter.title);
-  const [editSender, setEditSender] = useState(letter.senderName);
-  const [editRecipient, setEditRecipient] = useState(letter.recipientName);
+  const [editBody, setEditBody] = useState(letterBody);
+  const [editTitle, setEditTitle] = useState(letterTitle);
+  const [editSender, setEditSender] = useState(senderName);
+  const [editRecipient, setEditRecipient] = useState(recipientName);
+
+  React.useEffect(() => {
+    if (letter?.body) setEditBody(letter.body);
+    if (letter?.title) setEditTitle(letter.title);
+    if (letter?.senderName) setEditSender(letter.senderName);
+    if (letter?.recipientName) setEditRecipient(letter.recipientName);
+  }, [letter]);
 
   const [wishText, setWishText] = useState('');
   const [showWishModal, setShowWishModal] = useState(false);

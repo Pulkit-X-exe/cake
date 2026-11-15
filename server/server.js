@@ -71,7 +71,7 @@ io.on('connection', (socket) => {
   let currentRoomId = null;
 
   // Create Room
-  socket.on('create-room', ({ roomId, userName, role, cakeConfig, letter }) => {
+  socket.on('create-room', ({ roomId, userName, role, cakeConfig, letter, personalMessage }) => {
     const id = (roomId || Math.random().toString(36).substring(2, 9)).toUpperCase();
     currentRoomId = id;
 
@@ -79,14 +79,29 @@ io.on('connection', (socket) => {
     if (!room) {
       room = createDefaultRoom(id);
       room.creatorSocketId = socket.id;
-      if (cakeConfig) {
-        room.cakeConfig = { ...room.cakeConfig, ...cakeConfig };
-        if (cakeConfig.message) room.letter.body = cakeConfig.message;
-        if (cakeConfig.name) room.letter.recipientName = cakeConfig.name;
-      }
-      if (letter) room.letter = { ...room.letter, ...letter };
-      rooms.set(id, room);
     }
+
+    if (cakeConfig) {
+      room.cakeConfig = { ...room.cakeConfig, ...cakeConfig };
+      if (cakeConfig.name) room.letter.recipientName = cakeConfig.name;
+    }
+
+    const customBody = (personalMessage && personalMessage.trim()) || (letter && letter.body && letter.body.trim());
+    if (customBody) {
+      room.letter.body = customBody;
+    }
+    if (letter) {
+      if (letter.title) room.letter.title = letter.title;
+      if (letter.senderName) room.letter.senderName = letter.senderName;
+      if (letter.recipientName) room.letter.recipientName = letter.recipientName;
+    }
+    if (role === 'partner' && userName) {
+      room.letter.senderName = userName;
+    } else if (role === 'star' && userName) {
+      room.letter.recipientName = userName;
+    }
+
+    rooms.set(id, room);
 
     const participant = {
       id: socket.id,
@@ -107,19 +122,51 @@ io.on('connection', (socket) => {
 
     socket.join(id);
     socket.emit('room-created', { roomId: id, roomState: room });
-    console.log(`[Room Created] ID: ${id} by ${participant.name}`);
+    console.log(`[Room Created] ID: ${id} by ${participant.name} with custom letter body: ${room.letter.body.slice(0, 30)}...`);
   });
 
   // Join Room
-  socket.on('join-room', ({ roomId, userName, role }) => {
+  socket.on('join-room', ({ roomId, userName, role, cakeConfig, letter, personalMessage }) => {
     const id = (roomId || '').trim().toUpperCase();
-    if (!id || !rooms.has(id)) {
-      const newRoom = createDefaultRoom(id);
-      newRoom.creatorSocketId = socket.id;
-      rooms.set(id, newRoom);
+    let room = rooms.get(id);
+
+    if (!room) {
+      room = createDefaultRoom(id);
+      room.creatorSocketId = socket.id;
+      if (cakeConfig) {
+        room.cakeConfig = { ...room.cakeConfig, ...cakeConfig };
+        if (cakeConfig.name) room.letter.recipientName = cakeConfig.name;
+      }
+      const customBody = (personalMessage && personalMessage.trim()) || (letter && letter.body && letter.body.trim());
+      if (customBody) {
+        room.letter.body = customBody;
+      }
+      if (letter) {
+        if (letter.title) room.letter.title = letter.title;
+        if (letter.senderName) room.letter.senderName = letter.senderName;
+        if (letter.recipientName) room.letter.recipientName = letter.recipientName;
+      }
+      if (role === 'partner' && userName) {
+        room.letter.senderName = userName;
+      } else if (role === 'star' && userName) {
+        room.letter.recipientName = userName;
+      }
+      rooms.set(id, room);
+    } else {
+      // Room already exists! Retrieve existing room letter. DO NOT overwrite with default!
+      const customBody = (personalMessage && personalMessage.trim()) || (letter && letter.body && letter.body.trim());
+      const isDefaultBody = !room.letter.body || room.letter.body.startsWith('Happy Birthday, my favorite soul');
+      if (customBody && isDefaultBody) {
+        room.letter.body = customBody;
+      }
+      if (role === 'partner' && userName && (!room.letter.senderName || room.letter.senderName === 'Forever Yours')) {
+        room.letter.senderName = userName;
+      }
+      if (role === 'star' && userName && (!room.letter.recipientName || room.letter.recipientName === 'Birthday Star')) {
+        room.letter.recipientName = userName;
+      }
     }
 
-    const room = rooms.get(id);
     currentRoomId = id;
 
     const otherParticipants = room.participants.filter(p => p.id !== socket.id);
@@ -386,16 +433,15 @@ io.on('connection', (socket) => {
     room.celebrationState.fireworksActive = false;
     room.celebrationState.messageOpened = true;
     room.letter.revealed = true;
-    if (room.cakeConfig && room.cakeConfig.message) {
-      room.letter.body = room.cakeConfig.message;
-    }
-    if (room.cakeConfig && room.cakeConfig.name) {
+    // DO NOT overwrite room.letter.body with cakeConfig.message!
+    // room.letter.body holds the personal keepsake letter!
+    if (room.cakeConfig && room.cakeConfig.name && (!room.letter.recipientName || room.letter.recipientName === 'Birthday Star')) {
       room.letter.recipientName = room.cakeConfig.name;
     }
 
     io.in(currentRoomId).emit('birthday:open-message', {
-      message: room.cakeConfig.message,
-      name: room.cakeConfig.name,
+      message: room.letter.body,
+      name: room.letter.recipientName,
       letter: room.letter,
       roomState: room
     });

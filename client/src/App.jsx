@@ -226,19 +226,25 @@ Always and forever with you ❤️`,
       console.log('[App] Birthday message opened! Showing romantic keepsake letter.');
       setIsFireworksActive(false);
       setCelebrationStage('message');
-      if (message || name) {
+      if (name) {
         setCakeConfig(prev => ({
           ...prev,
-          message: message || prev.message,
           name: name || prev.name
         }));
       }
       if (letter) {
-        setLetterData({
+        setLetterData(prev => ({
+          ...prev,
           ...letter,
           revealed: true,
-          body: message || letter.body
-        });
+          body: letter.body || prev.body
+        }));
+      } else if (message) {
+        setLetterData(prev => ({
+          ...prev,
+          revealed: true,
+          body: message || prev.body
+        }));
       }
       if (roomState) applyRoomState(roomState);
       soundEngine.playSparkleChime();
@@ -274,7 +280,13 @@ Always and forever with you ❤️`,
       setCuttingProgress(state.celebrationState.cakeCutProgress);
       if (state.celebrationState.wishes) setWishes(state.celebrationState.wishes);
     }
-    if (state.letter) setLetterData(state.letter);
+    if (state.letter && state.letter.body) {
+      setLetterData(prev => ({
+        ...prev,
+        ...state.letter,
+        body: state.letter.body || prev.body
+      }));
+    }
   }
 
   function triggerConfettiBurst() {
@@ -287,7 +299,7 @@ Always and forever with you ❤️`,
   }
 
   // Handle joining or creating room
-  const handleJoinOrCreateRoom = ({ roomId: id, userName, role, cakeConfig: newCakeConfig }) => {
+  const handleJoinOrCreateRoom = ({ roomId: id, userName, role, cakeConfig: newCakeConfig, personalMessage, letter }) => {
     if (!socket) return;
 
     const user = {
@@ -301,10 +313,38 @@ Always and forever with you ❤️`,
       setCakeConfig(prev => ({ ...prev, ...newCakeConfig }));
     }
 
+    const messageText = (personalMessage && personalMessage.trim())
+      ? personalMessage.trim()
+      : (letter?.body || letterData.body);
+
+    const initialLetter = {
+      senderName: role === 'partner' ? userName : (letter?.senderName || 'Forever Yours'),
+      recipientName: role === 'star' ? userName : (newCakeConfig?.name || 'Birthday Star'),
+      title: letter?.title || 'Under the Midnight Stars',
+      body: messageText,
+      revealed: false
+    };
+
+    if (personalMessage && personalMessage.trim()) {
+      setLetterData(initialLetter);
+    }
+
+    socket.emit('create-room', {
+      roomId: id,
+      userName,
+      role,
+      cakeConfig: newCakeConfig,
+      letter: initialLetter,
+      personalMessage: messageText
+    });
+
     socket.emit('join-room', {
       roomId: id,
       userName,
-      role
+      role,
+      cakeConfig: newCakeConfig,
+      letter: initialLetter,
+      personalMessage: messageText
     });
 
     setRoomId(id);
@@ -708,8 +748,8 @@ Always and forever with you ❤️`,
       {isFireworksActive && (
         <FireworksCelebration
           isActive={isFireworksActive}
-          partnerName={cakeConfig.name}
-          customMessage={cakeConfig.message}
+          partnerName={letterData?.recipientName || cakeConfig.name}
+          customMessage={letterData?.body || cakeConfig.message}
           onOpenMessage={handleOpenMessage}
           onProceedToLetter={handleOpenMessage}
           onRelightCandles={handleRelightCandles}

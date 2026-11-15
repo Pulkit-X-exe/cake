@@ -21,9 +21,23 @@ export default function RomanticMessageModal({
   const [shootingStars, setShootingStars] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
 
-  const recipientName = cakeConfig.name || letterData.recipientName || 'Birthday Star';
-  const customMessage = cakeConfig.message || letterData.body || 'Happy Birthday to my favorite person in the world!';
-  const senderName = currentUser?.name || letterData.senderName || 'Forever Yours';
+  const defaultBody = `Happy Birthday, my favorite soul in the universe!
+
+Even across the distance and miles between us, my heart is right beside yours tonight.
+Watching you smile as you blow out these candles makes the whole world feel warmer.
+
+May this new year bring you infinite joy, gentle mornings, soaring dreams, and all the love you give so effortlessly to the world.
+
+Always and forever with you ❤️`;
+
+  const customMessage = (letterData?.body && letterData.body.trim())
+    ? letterData.body
+    : ((cakeConfig?.message && cakeConfig.message !== 'Happy Birthday!' && cakeConfig.message.trim())
+      ? cakeConfig.message
+      : defaultBody);
+
+  const recipientName = letterData?.recipientName || cakeConfig.name || 'Birthday Star';
+  const senderName = letterData?.senderName || (currentUser?.role === 'partner' ? currentUser?.name : 'Forever Yours');
   const [editableBody, setEditableBody] = useState(customMessage);
 
   useEffect(() => {
